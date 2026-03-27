@@ -1,0 +1,9 @@
+[package]
+name = "node-compiler"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+eframe = "0.34.0"
+egui = "0.34.0"
+egui-snarl = "0.9.0"
