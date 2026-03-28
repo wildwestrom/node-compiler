@@ -21,6 +21,8 @@ cargo clippy         # lint
 nix develop          # enter dev shell (NixOS environment)
 ```
 
+This project uses jujutsu so for any git commands, use whatever the jj equivalent is.
+
 ## Architecture
 
 ### Key dependencies
