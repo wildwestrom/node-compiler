@@ -1,5 +1,12 @@
 use std::path::PathBuf;
 
+use eframe::CreationContext;
+use egui::Id;
+use egui_snarl::{
+	Snarl,
+	ui::{PinInfo, SnarlStyle, SnarlViewer, SnarlWidget},
+};
+
 type GraphId = u64;
 
 pub enum Value {
@@ -38,20 +45,95 @@ pub enum NodeKind {
 	Subgraph(GraphId), // reference to another graph by ID
 }
 
-fn main() -> eframe::Result {
-	let options = eframe::NativeOptions::default();
-	eframe::run_native(
-		"Node Compiler",
-		options,
-		Box::new(|_cc| Ok(Box::new(App::default()))),
-	)
+struct App {
+	snarl: Snarl<NodeKind>,
+	style: SnarlStyle,
 }
 
-#[derive(Default)]
-struct App;
+impl App {
+	fn new(_cx: &CreationContext) -> Self {
+		let snarl = Snarl::new();
+
+		let style = SnarlStyle::default();
+
+		Self { snarl, style }
+	}
+}
 
 impl eframe::App for App {
-	fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-		ui.heading("Node Compiler");
+	fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+		egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+			egui::MenuBar::new().ui(ui, |ui| {
+				ui.menu_button("File", |ui| {
+					if ui.button("Quit").clicked() {
+						ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+					}
+				});
+				ui.add_space(16.0);
+			})
+		});
+		egui::CentralPanel::default().show(ctx, |ui| {
+			SnarlWidget::new()
+				.id(Id::new("snarl-testing"))
+				.style(self.style)
+				.show(&mut self.snarl, &mut NodeGraphViewer, ui)
+		});
 	}
+}
+
+struct NodeGraphViewer;
+
+impl SnarlViewer<NodeKind> for NodeGraphViewer {
+	fn connect(
+		&mut self,
+		from: &egui_snarl::OutPin,
+		to: &egui_snarl::InPin,
+		snarl: &mut Snarl<NodeKind>,
+	) {
+		todo!()
+	}
+
+	fn title(&mut self, node: &NodeKind) -> String {
+		todo!()
+	}
+
+	fn inputs(&mut self, node: &NodeKind) -> usize {
+		todo!()
+	}
+
+	fn outputs(&mut self, node: &NodeKind) -> usize {
+		todo!()
+	}
+
+	fn show_input(
+		&mut self,
+		pin: &egui_snarl::InPin,
+		ui: &mut egui::Ui,
+		snarl: &mut Snarl<NodeKind>,
+	) -> PinInfo {
+		todo!()
+	}
+
+	fn show_output(
+		&mut self,
+		pin: &egui_snarl::OutPin,
+		ui: &mut egui::Ui,
+		snarl: &mut Snarl<NodeKind>,
+	) -> PinInfo {
+		todo!()
+	}
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn main() -> eframe::Result {
+	let native_options = eframe::NativeOptions {
+		viewport: egui::ViewportBuilder::default().with_min_inner_size([300.0, 220.0]),
+		..Default::default()
+	};
+
+	eframe::run_native(
+		"Node Compiler",
+		native_options,
+		Box::new(|cx| Ok(Box::new(App::new(cx)))),
+	)
 }
