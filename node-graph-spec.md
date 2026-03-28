@@ -62,7 +62,7 @@ All integers are little-endian.
 
 | Offset | Size | Field                  | Description                        |
 |--------|------|------------------------|------------------------------------|
-| 0      | 4    | `magic`                | `0x4E474246` ("NGBF")              |
+| 0      | 4    | `magic`                | `0x53545250` ("STRP")              |
 | 4      | 2    | `version`              | Format version, currently `0x0001` |
 | 6      | 2    | `reserved`             | Must be zero                       |
 | 8      | 4    | `node_count`           | Number of topology records         |
@@ -365,7 +365,7 @@ Used in payload fields (port type arrays, field type arrays):
 
 A conforming file must satisfy all of the following. A loader may reject non-conforming files without further processing.
 
-1. Magic bytes match `0x4E474246`.
+1. Magic bytes match `0x53545250` ("STRP").
 2. `node_count` and `wire_count` are consistent with file size.
 3. All `parent_id` references resolve to existing node IDs.
 4. All wire endpoint node IDs and port indices resolve to valid nodes and their defined port counts.
