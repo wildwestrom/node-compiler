@@ -264,45 +264,36 @@ fn compute(pin: OutPinId, snarl: &Snarl<NodeKind>, cache: &mut EvalCache) -> Opt
 // ─── Node kinds (mirrors spec discriminant catalogue) ────────────────────────
 
 #[derive(Clone, Debug)]
+pub enum ValueKind {
+	Bit(bool),
+	Byte(u8),
+	Word(u64),
+}
+
+#[derive(Clone, Debug)]
 pub enum NodeKind {
 	// Structural (0x0001–0x00FF)
 	Sink,
 
 	// Literals (0x0100–0x01FF)
-	LitBit(bool),
-	LitByte(u8),
-	LitWord(u64),
+	Value(ValueKind),
 
 	// Bitwise — monomorphized per type (0x0200–0x02FF)
-	AndBit,
-	AndByte,
-	AndWord,
-	OrBit,
-	OrByte,
-	OrWord,
-	XorBit,
-	XorByte,
-	XorWord,
-	NotBit,
-	NotByte,
-	NotWord,
-	NandBit,
-	NandByte,
-	NandWord,
-	NorBit,
-	NorByte,
-	NorWord,
-	ShlByte,
-	ShlWord,
-	ShrByte,
-	ShrWord,
+	And,
+	Or,
+	Xor,
+	Not,
+	Nand,
+	Nor,
+	Shl,
+	Shr,
 
 	// Arithmetic — all Word (0x0300–0x03FF)
-	AddWord,
-	SubWord,
-	MulWord,
-	DivWord,
-	ModWord,
+	Add,
+	Sub,
+	Mul,
+	Div,
+	Mod,
 
 	// Byte manipulation (0x0400–0x04FF)
 	Concat {
@@ -336,8 +327,6 @@ pub enum NodeKind {
 	BranchTarget {
 		relative: bool,
 	},
-	ElfHeader,
-	PeHeader,
 }
 
 impl NodeKind {
