@@ -166,54 +166,74 @@ fn compute(pin: OutPinId, snarl: &Snarl<NodeKind>, cache: &mut EvalCache) -> Opt
 	}
 
 	match &snarl[n] {
-		// ── Literals ──────────────────────────────────────────────────────
-		NodeKind::LitBit(v) => Some(NodeValue::Bit(*v)),
-		NodeKind::LitByte(v) => Some(NodeValue::Byte(*v)),
-		NodeKind::LitWord(v) => Some(NodeValue::Word(*v)),
+		// ── Values ────────────────────────────────────────────────────────
+		NodeKind::Value(vk) => match vk {
+			ValueKind::Bit(v) => Some(NodeValue::Bit(*v)),
+			ValueKind::Byte(v) => Some(NodeValue::Byte(*v)),
+			ValueKind::Word(v) => Some(NodeValue::Word(*v)),
+		},
 
-		// ── Bitwise Bit ───────────────────────────────────────────────────
-		NodeKind::AndBit => Some(NodeValue::Bit(inp_bit!(0) & inp_bit!(1))),
-		NodeKind::OrBit => Some(NodeValue::Bit(inp_bit!(0) | inp_bit!(1))),
-		NodeKind::XorBit => Some(NodeValue::Bit(inp_bit!(0) ^ inp_bit!(1))),
-		NodeKind::NandBit => Some(NodeValue::Bit(!(inp_bit!(0) & inp_bit!(1)))),
-		NodeKind::NorBit => Some(NodeValue::Bit(!(inp_bit!(0) | inp_bit!(1)))),
-		NodeKind::NotBit => Some(NodeValue::Bit(!inp_bit!(0))),
-
-		// ── Bitwise Byte ──────────────────────────────────────────────────
-		NodeKind::AndByte => Some(NodeValue::Byte(inp_byte!(0) & inp_byte!(1))),
-		NodeKind::OrByte => Some(NodeValue::Byte(inp_byte!(0) | inp_byte!(1))),
-		NodeKind::XorByte => Some(NodeValue::Byte(inp_byte!(0) ^ inp_byte!(1))),
-		NodeKind::NandByte => Some(NodeValue::Byte(!(inp_byte!(0) & inp_byte!(1)))),
-		NodeKind::NorByte => Some(NodeValue::Byte(!(inp_byte!(0) | inp_byte!(1)))),
-		NodeKind::NotByte => Some(NodeValue::Byte(!inp_byte!(0))),
-
-		// ── Bitwise Word ──────────────────────────────────────────────────
-		NodeKind::AndWord => Some(NodeValue::Word(inp_word!(0) & inp_word!(1))),
-		NodeKind::OrWord => Some(NodeValue::Word(inp_word!(0) | inp_word!(1))),
-		NodeKind::XorWord => Some(NodeValue::Word(inp_word!(0) ^ inp_word!(1))),
-		NodeKind::NandWord => Some(NodeValue::Word(!(inp_word!(0) & inp_word!(1)))),
-		NodeKind::NorWord => Some(NodeValue::Word(!(inp_word!(0) | inp_word!(1)))),
-		NodeKind::NotWord => Some(NodeValue::Word(!inp_word!(0))),
+		// ── Bitwise — polymorphic on first input's type ───────────────────
+		NodeKind::And => match get_in(n, 0, snarl, cache)? {
+			NodeValue::Bit(a) => Some(NodeValue::Bit(a & inp_bit!(1))),
+			NodeValue::Byte(a) => Some(NodeValue::Byte(a & inp_byte!(1))),
+			NodeValue::Word(a) => Some(NodeValue::Word(a & inp_word!(1))),
+			_ => None,
+		},
+		NodeKind::Or => match get_in(n, 0, snarl, cache)? {
+			NodeValue::Bit(a) => Some(NodeValue::Bit(a | inp_bit!(1))),
+			NodeValue::Byte(a) => Some(NodeValue::Byte(a | inp_byte!(1))),
+			NodeValue::Word(a) => Some(NodeValue::Word(a | inp_word!(1))),
+			_ => None,
+		},
+		NodeKind::Xor => match get_in(n, 0, snarl, cache)? {
+			NodeValue::Bit(a) => Some(NodeValue::Bit(a ^ inp_bit!(1))),
+			NodeValue::Byte(a) => Some(NodeValue::Byte(a ^ inp_byte!(1))),
+			NodeValue::Word(a) => Some(NodeValue::Word(a ^ inp_word!(1))),
+			_ => None,
+		},
+		NodeKind::Not => match get_in(n, 0, snarl, cache)? {
+			NodeValue::Bit(a) => Some(NodeValue::Bit(!a)),
+			NodeValue::Byte(a) => Some(NodeValue::Byte(!a)),
+			NodeValue::Word(a) => Some(NodeValue::Word(!a)),
+			_ => None,
+		},
+		NodeKind::Nand => match get_in(n, 0, snarl, cache)? {
+			NodeValue::Bit(a) => Some(NodeValue::Bit(!(a & inp_bit!(1)))),
+			NodeValue::Byte(a) => Some(NodeValue::Byte(!(a & inp_byte!(1)))),
+			NodeValue::Word(a) => Some(NodeValue::Word(!(a & inp_word!(1)))),
+			_ => None,
+		},
+		NodeKind::Nor => match get_in(n, 0, snarl, cache)? {
+			NodeValue::Bit(a) => Some(NodeValue::Bit(!(a | inp_bit!(1)))),
+			NodeValue::Byte(a) => Some(NodeValue::Byte(!(a | inp_byte!(1)))),
+			NodeValue::Word(a) => Some(NodeValue::Word(!(a | inp_word!(1)))),
+			_ => None,
+		},
 
 		// ── Shifts ────────────────────────────────────────────────────────
-		NodeKind::ShlByte => Some(NodeValue::Byte(
-			inp_byte!(0).wrapping_shl(inp_byte!(1) as u32),
-		)),
-		NodeKind::ShlWord => Some(NodeValue::Word(
-			inp_word!(0).wrapping_shl(inp_byte!(1) as u32),
-		)),
-		NodeKind::ShrByte => Some(NodeValue::Byte(
-			inp_byte!(0).wrapping_shr(inp_byte!(1) as u32),
-		)),
-		NodeKind::ShrWord => Some(NodeValue::Word(
-			inp_word!(0).wrapping_shr(inp_byte!(1) as u32),
-		)),
+		NodeKind::Shl => {
+			let amount = inp_byte!(1) as u32;
+			match get_in(n, 0, snarl, cache)? {
+				NodeValue::Byte(a) => Some(NodeValue::Byte(a.wrapping_shl(amount))),
+				NodeValue::Word(a) => Some(NodeValue::Word(a.wrapping_shl(amount))),
+				_ => None,
+			}
+		}
+		NodeKind::Shr => {
+			let amount = inp_byte!(1) as u32;
+			match get_in(n, 0, snarl, cache)? {
+				NodeValue::Byte(a) => Some(NodeValue::Byte(a.wrapping_shr(amount))),
+				NodeValue::Word(a) => Some(NodeValue::Word(a.wrapping_shr(amount))),
+				_ => None,
+			}
+		}
 
-		// ── Arithmetic ────────────────────────────────────────────────────
-		NodeKind::AddWord => Some(NodeValue::Word(inp_word!(0).wrapping_add(inp_word!(1)))),
-		NodeKind::SubWord => Some(NodeValue::Word(inp_word!(0).wrapping_sub(inp_word!(1)))),
-		NodeKind::MulWord => Some(NodeValue::Word(inp_word!(0).wrapping_mul(inp_word!(1)))),
-		NodeKind::DivWord => {
+		// ── Arithmetic (Word) ─────────────────────────────────────────────
+		NodeKind::Add => Some(NodeValue::Word(inp_word!(0).wrapping_add(inp_word!(1)))),
+		NodeKind::Sub => Some(NodeValue::Word(inp_word!(0).wrapping_sub(inp_word!(1)))),
+		NodeKind::Mul => Some(NodeValue::Word(inp_word!(0).wrapping_mul(inp_word!(1)))),
+		NodeKind::Div => {
 			let b = inp_word!(1);
 			if b == 0 {
 				None
@@ -221,7 +241,7 @@ fn compute(pin: OutPinId, snarl: &Snarl<NodeKind>, cache: &mut EvalCache) -> Opt
 				Some(NodeValue::Word(inp_word!(0) / b))
 			}
 		}
-		NodeKind::ModWord => {
+		NodeKind::Mod => {
 			let b = inp_word!(1);
 			if b == 0 {
 				None
@@ -275,7 +295,7 @@ pub enum NodeKind {
 	// Structural (0x0001–0x00FF)
 	Sink,
 
-	// Literals (0x0100–0x01FF)
+	// Values (0x0100–0x01FF)
 	Value(ValueKind),
 
 	// Bitwise — monomorphized per type (0x0200–0x02FF)
@@ -316,53 +336,30 @@ pub enum NodeKind {
 		name: String,
 		field_types: Vec<WireType>,
 	},
-
-	// Binary generation (0x0600–0x06FF)
-	Instruction {
-		operand_count: u8,
-	},
-	Label {
-		name: String,
-	},
-	BranchTarget {
-		relative: bool,
-	},
 }
 
 impl NodeKind {
 	fn node_title(&self) -> String {
 		match self {
 			NodeKind::Sink => "SINK".into(),
-			NodeKind::LitBit(_) => "LIT BIT".into(),
-			NodeKind::LitByte(_) => "LIT BYTE".into(),
-			NodeKind::LitWord(_) => "LIT WORD".into(),
-			NodeKind::AndBit => "AND (Bit)".into(),
-			NodeKind::AndByte => "AND (Byte)".into(),
-			NodeKind::AndWord => "AND (Word)".into(),
-			NodeKind::OrBit => "OR (Bit)".into(),
-			NodeKind::OrByte => "OR (Byte)".into(),
-			NodeKind::OrWord => "OR (Word)".into(),
-			NodeKind::XorBit => "XOR (Bit)".into(),
-			NodeKind::XorByte => "XOR (Byte)".into(),
-			NodeKind::XorWord => "XOR (Word)".into(),
-			NodeKind::NotBit => "NOT (Bit)".into(),
-			NodeKind::NotByte => "NOT (Byte)".into(),
-			NodeKind::NotWord => "NOT (Word)".into(),
-			NodeKind::NandBit => "NAND (Bit)".into(),
-			NodeKind::NandByte => "NAND (Byte)".into(),
-			NodeKind::NandWord => "NAND (Word)".into(),
-			NodeKind::NorBit => "NOR (Bit)".into(),
-			NodeKind::NorByte => "NOR (Byte)".into(),
-			NodeKind::NorWord => "NOR (Word)".into(),
-			NodeKind::ShlByte => "SHL (Byte)".into(),
-			NodeKind::ShlWord => "SHL (Word)".into(),
-			NodeKind::ShrByte => "SHR (Byte)".into(),
-			NodeKind::ShrWord => "SHR (Word)".into(),
-			NodeKind::AddWord => "ADD".into(),
-			NodeKind::SubWord => "SUB".into(),
-			NodeKind::MulWord => "MUL".into(),
-			NodeKind::DivWord => "DIV".into(),
-			NodeKind::ModWord => "MOD".into(),
+			NodeKind::Value(vk) => match vk {
+				ValueKind::Bit(_) => "VALUE (Bit)".into(),
+				ValueKind::Byte(_) => "VALUE (Byte)".into(),
+				ValueKind::Word(_) => "VALUE (Word)".into(),
+			},
+			NodeKind::And => "AND".into(),
+			NodeKind::Or => "OR".into(),
+			NodeKind::Xor => "XOR".into(),
+			NodeKind::Not => "NOT".into(),
+			NodeKind::Nand => "NAND".into(),
+			NodeKind::Nor => "NOR".into(),
+			NodeKind::Shl => "SHL".into(),
+			NodeKind::Shr => "SHR".into(),
+			NodeKind::Add => "ADD".into(),
+			NodeKind::Sub => "SUB".into(),
+			NodeKind::Mul => "MUL".into(),
+			NodeKind::Div => "DIV".into(),
+			NodeKind::Mod => "MOD".into(),
 			NodeKind::Concat { count } => format!("CONCAT ({})", count),
 			NodeKind::Slice => "SLICE".into(),
 			NodeKind::Pack => "PACK".into(),
@@ -370,62 +367,31 @@ impl NodeKind {
 			NodeKind::Function { name, .. } => name.clone(),
 			NodeKind::Module { name } => name.clone(),
 			NodeKind::Record { name, .. } => name.clone(),
-			NodeKind::Instruction { operand_count } => format!("INSTR ({})", operand_count),
-			NodeKind::Label { name } => name.clone(),
-			NodeKind::BranchTarget { relative } => {
-				if *relative {
-					"BRANCH REL".into()
-				} else {
-					"BRANCH ABS".into()
-				}
-			}
-			NodeKind::ElfHeader => "ELF HEADER".into(),
-			NodeKind::PeHeader => "PE HEADER".into(),
 		}
 	}
 
 	fn input_count(&self) -> usize {
 		match self {
 			NodeKind::Sink => 1,
-			NodeKind::LitBit(_)
-			| NodeKind::LitByte(_)
-			| NodeKind::LitWord(_)
-			| NodeKind::Label { .. }
-			| NodeKind::Module { .. } => 0,
-			NodeKind::NotBit | NodeKind::NotByte | NodeKind::NotWord | NodeKind::Unpack => 1,
-			NodeKind::AndBit
-			| NodeKind::AndByte
-			| NodeKind::AndWord
-			| NodeKind::OrBit
-			| NodeKind::OrByte
-			| NodeKind::OrWord
-			| NodeKind::XorBit
-			| NodeKind::XorByte
-			| NodeKind::XorWord
-			| NodeKind::NandBit
-			| NodeKind::NandByte
-			| NodeKind::NandWord
-			| NodeKind::NorBit
-			| NodeKind::NorByte
-			| NodeKind::NorWord
-			| NodeKind::ShlByte
-			| NodeKind::ShlWord
-			| NodeKind::ShrByte
-			| NodeKind::ShrWord
-			| NodeKind::AddWord
-			| NodeKind::SubWord
-			| NodeKind::MulWord
-			| NodeKind::DivWord
-			| NodeKind::ModWord
-			| NodeKind::Slice
-			| NodeKind::BranchTarget { .. }
-			| NodeKind::PeHeader => 2,
+			NodeKind::Value(_) | NodeKind::Module { .. } => 0,
+			NodeKind::Not | NodeKind::Unpack => 1,
+			NodeKind::And
+			| NodeKind::Or
+			| NodeKind::Xor
+			| NodeKind::Nand
+			| NodeKind::Nor
+			| NodeKind::Shl
+			| NodeKind::Shr
+			| NodeKind::Add
+			| NodeKind::Sub
+			| NodeKind::Mul
+			| NodeKind::Div
+			| NodeKind::Mod
+			| NodeKind::Slice => 2,
 			NodeKind::Pack => 8,
-			NodeKind::ElfHeader => 3,
 			NodeKind::Concat { count } => *count as usize,
 			NodeKind::Function { in_types, .. } => in_types.len(),
 			NodeKind::Record { field_types, .. } => field_types.len(),
-			NodeKind::Instruction { operand_count } => 1 + *operand_count as usize,
 		}
 	}
 
@@ -441,31 +407,17 @@ impl NodeKind {
 	fn input_wire_type(&self, port: usize) -> WireType {
 		match self {
 			NodeKind::Sink | NodeKind::Concat { .. } => WireType::Byte,
-			NodeKind::AndBit
-			| NodeKind::OrBit
-			| NodeKind::XorBit
-			| NodeKind::NotBit
-			| NodeKind::NandBit
-			| NodeKind::NorBit => WireType::Bit,
-			NodeKind::AndWord
-			| NodeKind::OrWord
-			| NodeKind::XorWord
-			| NodeKind::NotWord
-			| NodeKind::NandWord
-			| NodeKind::NorWord => WireType::Word,
-			NodeKind::ShlByte | NodeKind::ShrByte => WireType::Byte,
-			NodeKind::ShlWord | NodeKind::ShrWord => {
-				if port == 0 {
-					WireType::Word
-				} else {
-					WireType::Byte
-				}
+			NodeKind::And
+			| NodeKind::Or
+			| NodeKind::Xor
+			| NodeKind::Not
+			| NodeKind::Nand
+			| NodeKind::Nor
+			| NodeKind::Shl
+			| NodeKind::Shr => WireType::Byte,
+			NodeKind::Add | NodeKind::Sub | NodeKind::Mul | NodeKind::Div | NodeKind::Mod => {
+				WireType::Word
 			}
-			NodeKind::AddWord
-			| NodeKind::SubWord
-			| NodeKind::MulWord
-			| NodeKind::DivWord
-			| NodeKind::ModWord => WireType::Word,
 			NodeKind::Slice => {
 				if port == 0 {
 					WireType::Word
@@ -481,38 +433,18 @@ impl NodeKind {
 			NodeKind::Record { field_types, .. } => {
 				field_types.get(port).copied().unwrap_or(WireType::Byte)
 			}
-			NodeKind::BranchTarget { .. } | NodeKind::ElfHeader | NodeKind::PeHeader => {
-				WireType::Word
-			}
-			NodeKind::Instruction { .. } => WireType::Byte,
 			_ => WireType::Byte,
 		}
 	}
 
 	fn output_wire_type(&self, port: usize) -> WireType {
 		match self {
-			NodeKind::LitBit(_) => WireType::Bit,
-			NodeKind::LitWord(_) => WireType::Word,
-			NodeKind::AndBit
-			| NodeKind::OrBit
-			| NodeKind::XorBit
-			| NodeKind::NotBit
-			| NodeKind::NandBit
-			| NodeKind::NorBit => WireType::Bit,
-			NodeKind::AndWord
-			| NodeKind::OrWord
-			| NodeKind::XorWord
-			| NodeKind::NotWord
-			| NodeKind::NandWord
-			| NodeKind::NorWord => WireType::Word,
-			NodeKind::ShlWord | NodeKind::ShrWord => WireType::Word,
-			NodeKind::AddWord
-			| NodeKind::SubWord
-			| NodeKind::MulWord
-			| NodeKind::DivWord
-			| NodeKind::ModWord => WireType::Word,
+			NodeKind::Value(ValueKind::Bit(_)) => WireType::Bit,
+			NodeKind::Value(ValueKind::Word(_)) => WireType::Word,
+			NodeKind::Add | NodeKind::Sub | NodeKind::Mul | NodeKind::Div | NodeKind::Mod => {
+				WireType::Word
+			}
 			NodeKind::Unpack => WireType::Bit,
-			NodeKind::Label { .. } => WireType::Word,
 			NodeKind::Function { out_types, .. } => {
 				out_types.get(port).copied().unwrap_or(WireType::Byte)
 			}
@@ -523,34 +455,24 @@ impl NodeKind {
 	fn input_label(&self, port: usize) -> String {
 		match self {
 			NodeKind::Sink => "in".into(),
-			NodeKind::AndBit
-			| NodeKind::AndByte
-			| NodeKind::AndWord
-			| NodeKind::OrBit
-			| NodeKind::OrByte
-			| NodeKind::OrWord
-			| NodeKind::XorBit
-			| NodeKind::XorByte
-			| NodeKind::XorWord
-			| NodeKind::NandBit
-			| NodeKind::NandByte
-			| NodeKind::NandWord
-			| NodeKind::NorBit
-			| NodeKind::NorByte
-			| NodeKind::NorWord
-			| NodeKind::AddWord
-			| NodeKind::SubWord
-			| NodeKind::MulWord
-			| NodeKind::DivWord
-			| NodeKind::ModWord => {
+			NodeKind::And
+			| NodeKind::Or
+			| NodeKind::Xor
+			| NodeKind::Nand
+			| NodeKind::Nor
+			| NodeKind::Add
+			| NodeKind::Sub
+			| NodeKind::Mul
+			| NodeKind::Div
+			| NodeKind::Mod => {
 				if port == 0 {
 					"a".into()
 				} else {
 					"b".into()
 				}
 			}
-			NodeKind::NotBit | NodeKind::NotByte | NodeKind::NotWord => "a".into(),
-			NodeKind::ShlByte | NodeKind::ShlWord | NodeKind::ShrByte | NodeKind::ShrWord => {
+			NodeKind::Not => "a".into(),
+			NodeKind::Shl | NodeKind::Shr => {
 				if port == 0 {
 					"a".into()
 				} else {
@@ -569,32 +491,6 @@ impl NodeKind {
 			NodeKind::Unpack => "in".into(),
 			NodeKind::Function { .. } => format!("in[{port}]"),
 			NodeKind::Record { .. } => format!("field[{port}]"),
-			NodeKind::Instruction { .. } => {
-				if port == 0 {
-					"opcode".into()
-				} else {
-					format!("op[{}]", port - 1)
-				}
-			}
-			NodeKind::BranchTarget { .. } => {
-				if port == 0 {
-					"target".into()
-				} else {
-					"base".into()
-				}
-			}
-			NodeKind::ElfHeader => match port {
-				0 => "entry".into(),
-				1 => "text_off".into(),
-				_ => "text_size".into(),
-			},
-			NodeKind::PeHeader => {
-				if port == 0 {
-					"entry".into()
-				} else {
-					"img_base".into()
-				}
-			}
 			_ => format!("in[{port}]"),
 		}
 	}
@@ -611,7 +507,10 @@ impl App {
 	fn new(_cx: &CreationContext) -> Self {
 		let mut snarl = Snarl::new();
 
-		let lit = snarl.insert_node(egui::pos2(-200.0, 0.0), NodeKind::LitByte(0xAB));
+		let lit = snarl.insert_node(
+			egui::pos2(-200.0, 0.0),
+			NodeKind::Value(ValueKind::Byte(0xAB)),
+		);
 		let sink = snarl.insert_node(egui::pos2(100.0, 0.0), NodeKind::Sink);
 		snarl.connect(
 			OutPinId {
@@ -711,24 +610,23 @@ impl SnarlViewer<NodeKind> for NodeGraphViewer<'_> {
 		let port = pin.id.output;
 
 		match &mut snarl[pin.id.node] {
-			// Literals show live editable widgets; value is self-evident.
-			NodeKind::LitBit(v) => {
-				ui.checkbox(v, "");
-			}
-			NodeKind::LitByte(v) => {
-				ui.add(egui::DragValue::new(v).hexadecimal(2, false, true));
-			}
-			NodeKind::LitWord(v) => {
-				ui.add(egui::DragValue::new(v).hexadecimal(16, false, true));
-			}
+			// Values show live editable widgets; value is self-evident.
+			NodeKind::Value(vk) => match vk {
+				ValueKind::Bit(v) => {
+					ui.checkbox(v, "");
+				}
+				ValueKind::Byte(v) => {
+					ui.add(egui::DragValue::new(v).hexadecimal(2, false, true));
+				}
+				ValueKind::Word(v) => {
+					ui.add(egui::DragValue::new(v).hexadecimal(16, false, true));
+				}
+			},
 
 			// Computed nodes: label + cached value.
 			NodeKind::Unpack => {
 				ui.label(format!("bit[{port}]"));
 				self.show_value(pin.id, ui);
-			}
-			NodeKind::Label { name } => {
-				ui.label(name.as_str());
 			}
 			NodeKind::Function { out_types, .. } => {
 				ui.label(format!(
@@ -801,147 +699,73 @@ impl SnarlViewer<NodeKind> for NodeGraphViewer<'_> {
 		ui.label("Add node");
 		ui.separator();
 
-		ui.menu_button("Literals", |ui| {
-			if ui.button("Bit").clicked() {
-				snarl.insert_node(pos, NodeKind::LitBit(false));
-				ui.close();
-			}
-			if ui.button("Byte").clicked() {
-				snarl.insert_node(pos, NodeKind::LitByte(0));
-				ui.close();
-			}
-			if ui.button("Word").clicked() {
-				snarl.insert_node(pos, NodeKind::LitWord(0));
-				ui.close();
-			}
-		});
+		if ui.button("Bit").clicked() {
+			snarl.insert_node(pos, NodeKind::Value(ValueKind::Bit(false)));
+			ui.close();
+		}
+		if ui.button("Byte").clicked() {
+			snarl.insert_node(pos, NodeKind::Value(ValueKind::Byte(0)));
+			ui.close();
+		}
+		if ui.button("Word").clicked() {
+			snarl.insert_node(pos, NodeKind::Value(ValueKind::Word(0)));
+			ui.close();
+		}
 
 		ui.menu_button("Bitwise", |ui| {
-			ui.menu_button("AND", |ui| {
-				if ui.button("Bit").clicked() {
-					snarl.insert_node(pos, NodeKind::AndBit);
-					ui.close();
-				}
-				if ui.button("Byte").clicked() {
-					snarl.insert_node(pos, NodeKind::AndByte);
-					ui.close();
-				}
-				if ui.button("Word").clicked() {
-					snarl.insert_node(pos, NodeKind::AndWord);
-					ui.close();
-				}
-			});
-			ui.menu_button("OR", |ui| {
-				if ui.button("Bit").clicked() {
-					snarl.insert_node(pos, NodeKind::OrBit);
-					ui.close();
-				}
-				if ui.button("Byte").clicked() {
-					snarl.insert_node(pos, NodeKind::OrByte);
-					ui.close();
-				}
-				if ui.button("Word").clicked() {
-					snarl.insert_node(pos, NodeKind::OrWord);
-					ui.close();
-				}
-			});
-			ui.menu_button("XOR", |ui| {
-				if ui.button("Bit").clicked() {
-					snarl.insert_node(pos, NodeKind::XorBit);
-					ui.close();
-				}
-				if ui.button("Byte").clicked() {
-					snarl.insert_node(pos, NodeKind::XorByte);
-					ui.close();
-				}
-				if ui.button("Word").clicked() {
-					snarl.insert_node(pos, NodeKind::XorWord);
-					ui.close();
-				}
-			});
-			ui.menu_button("NOT", |ui| {
-				if ui.button("Bit").clicked() {
-					snarl.insert_node(pos, NodeKind::NotBit);
-					ui.close();
-				}
-				if ui.button("Byte").clicked() {
-					snarl.insert_node(pos, NodeKind::NotByte);
-					ui.close();
-				}
-				if ui.button("Word").clicked() {
-					snarl.insert_node(pos, NodeKind::NotWord);
-					ui.close();
-				}
-			});
-			ui.menu_button("NAND", |ui| {
-				if ui.button("Bit").clicked() {
-					snarl.insert_node(pos, NodeKind::NandBit);
-					ui.close();
-				}
-				if ui.button("Byte").clicked() {
-					snarl.insert_node(pos, NodeKind::NandByte);
-					ui.close();
-				}
-				if ui.button("Word").clicked() {
-					snarl.insert_node(pos, NodeKind::NandWord);
-					ui.close();
-				}
-			});
-			ui.menu_button("NOR", |ui| {
-				if ui.button("Bit").clicked() {
-					snarl.insert_node(pos, NodeKind::NorBit);
-					ui.close();
-				}
-				if ui.button("Byte").clicked() {
-					snarl.insert_node(pos, NodeKind::NorByte);
-					ui.close();
-				}
-				if ui.button("Word").clicked() {
-					snarl.insert_node(pos, NodeKind::NorWord);
-					ui.close();
-				}
-			});
-			ui.menu_button("SHL", |ui| {
-				if ui.button("Byte").clicked() {
-					snarl.insert_node(pos, NodeKind::ShlByte);
-					ui.close();
-				}
-				if ui.button("Word").clicked() {
-					snarl.insert_node(pos, NodeKind::ShlWord);
-					ui.close();
-				}
-			});
-			ui.menu_button("SHR", |ui| {
-				if ui.button("Byte").clicked() {
-					snarl.insert_node(pos, NodeKind::ShrByte);
-					ui.close();
-				}
-				if ui.button("Word").clicked() {
-					snarl.insert_node(pos, NodeKind::ShrWord);
-					ui.close();
-				}
-			});
+			if ui.button("AND").clicked() {
+				snarl.insert_node(pos, NodeKind::And);
+				ui.close();
+			}
+			if ui.button("OR").clicked() {
+				snarl.insert_node(pos, NodeKind::Or);
+				ui.close();
+			}
+			if ui.button("XOR").clicked() {
+				snarl.insert_node(pos, NodeKind::Xor);
+				ui.close();
+			}
+			if ui.button("NOT").clicked() {
+				snarl.insert_node(pos, NodeKind::Not);
+				ui.close();
+			}
+			if ui.button("NAND").clicked() {
+				snarl.insert_node(pos, NodeKind::Nand);
+				ui.close();
+			}
+			if ui.button("NOR").clicked() {
+				snarl.insert_node(pos, NodeKind::Nor);
+				ui.close();
+			}
+			if ui.button("SHL").clicked() {
+				snarl.insert_node(pos, NodeKind::Shl);
+				ui.close();
+			}
+			if ui.button("SHR").clicked() {
+				snarl.insert_node(pos, NodeKind::Shr);
+				ui.close();
+			}
 		});
 
 		ui.menu_button("Arithmetic", |ui| {
 			if ui.button("ADD").clicked() {
-				snarl.insert_node(pos, NodeKind::AddWord);
+				snarl.insert_node(pos, NodeKind::Add);
 				ui.close();
 			}
 			if ui.button("SUB").clicked() {
-				snarl.insert_node(pos, NodeKind::SubWord);
+				snarl.insert_node(pos, NodeKind::Sub);
 				ui.close();
 			}
 			if ui.button("MUL").clicked() {
-				snarl.insert_node(pos, NodeKind::MulWord);
+				snarl.insert_node(pos, NodeKind::Mul);
 				ui.close();
 			}
 			if ui.button("DIV").clicked() {
-				snarl.insert_node(pos, NodeKind::DivWord);
+				snarl.insert_node(pos, NodeKind::Div);
 				ui.close();
 			}
 			if ui.button("MOD").clicked() {
-				snarl.insert_node(pos, NodeKind::ModWord);
+				snarl.insert_node(pos, NodeKind::Mod);
 				ui.close();
 			}
 		});
@@ -965,42 +789,6 @@ impl SnarlViewer<NodeKind> for NodeGraphViewer<'_> {
 			}
 			if ui.button("UNPACK").clicked() {
 				snarl.insert_node(pos, NodeKind::Unpack);
-				ui.close();
-			}
-		});
-
-		ui.menu_button("Binary generation", |ui| {
-			if ui.button("INSTRUCTION (1)").clicked() {
-				snarl.insert_node(pos, NodeKind::Instruction { operand_count: 1 });
-				ui.close();
-			}
-			if ui.button("INSTRUCTION (3)").clicked() {
-				snarl.insert_node(pos, NodeKind::Instruction { operand_count: 3 });
-				ui.close();
-			}
-			if ui.button("LABEL").clicked() {
-				snarl.insert_node(
-					pos,
-					NodeKind::Label {
-						name: "label".into(),
-					},
-				);
-				ui.close();
-			}
-			if ui.button("BRANCH (rel)").clicked() {
-				snarl.insert_node(pos, NodeKind::BranchTarget { relative: true });
-				ui.close();
-			}
-			if ui.button("BRANCH (abs)").clicked() {
-				snarl.insert_node(pos, NodeKind::BranchTarget { relative: false });
-				ui.close();
-			}
-			if ui.button("ELF HEADER").clicked() {
-				snarl.insert_node(pos, NodeKind::ElfHeader);
-				ui.close();
-			}
-			if ui.button("PE HEADER").clicked() {
-				snarl.insert_node(pos, NodeKind::PeHeader);
 				ui.close();
 			}
 		});
@@ -1041,24 +829,22 @@ impl SnarlViewer<NodeKind> for NodeGraphViewer<'_> {
 
 		match wt {
             Some(WireType::Bit) => {
-                if ui.button("AND (Bit)").clicked()  { snarl.insert_node(pos, NodeKind::AndBit);  ui.close(); }
-                if ui.button("OR (Bit)").clicked()   { snarl.insert_node(pos, NodeKind::OrBit);   ui.close(); }
-                if ui.button("NOT (Bit)").clicked()  { snarl.insert_node(pos, NodeKind::NotBit);  ui.close(); }
-                if ui.button("PACK").clicked()       { snarl.insert_node(pos, NodeKind::Pack);    ui.close(); }
+                if ui.button("AND").clicked()  { snarl.insert_node(pos, NodeKind::And);  ui.close(); }
+                if ui.button("OR").clicked()   { snarl.insert_node(pos, NodeKind::Or);   ui.close(); }
+                if ui.button("NOT").clicked()  { snarl.insert_node(pos, NodeKind::Not);  ui.close(); }
+                if ui.button("PACK").clicked() { snarl.insert_node(pos, NodeKind::Pack); ui.close(); }
             }
             Some(WireType::Word) => {
-                if ui.button("ADD").clicked()           { snarl.insert_node(pos, NodeKind::AddWord); ui.close(); }
-                if ui.button("SUB").clicked()           { snarl.insert_node(pos, NodeKind::SubWord); ui.close(); }
-                if ui.button("AND (Word)").clicked()    { snarl.insert_node(pos, NodeKind::AndWord); ui.close(); }
-                if ui.button("SLICE").clicked()         { snarl.insert_node(pos, NodeKind::Slice);   ui.close(); }
-                if ui.button("BRANCH TARGET").clicked() { snarl.insert_node(pos, NodeKind::BranchTarget { relative: true }); ui.close(); }
+                if ui.button("ADD").clicked()           { snarl.insert_node(pos, NodeKind::Add);   ui.close(); }
+                if ui.button("SUB").clicked()           { snarl.insert_node(pos, NodeKind::Sub);   ui.close(); }
+                if ui.button("AND").clicked()           { snarl.insert_node(pos, NodeKind::And);   ui.close(); }
+                if ui.button("SLICE").clicked()         { snarl.insert_node(pos, NodeKind::Slice); ui.close(); }
             }
             _ /* Byte */ => {
-                if ui.button("AND (Byte)").clicked()      { snarl.insert_node(pos, NodeKind::AndByte); ui.close(); }
+                if ui.button("AND").clicked()             { snarl.insert_node(pos, NodeKind::And);  ui.close(); }
                 if ui.button("CONCAT (2)").clicked()      { snarl.insert_node(pos, NodeKind::Concat { count: 2 }); ui.close(); }
-                if ui.button("UNPACK").clicked()          { snarl.insert_node(pos, NodeKind::Unpack);  ui.close(); }
-                if ui.button("SINK").clicked()            { snarl.insert_node(pos, NodeKind::Sink);    ui.close(); }
-                if ui.button("INSTRUCTION (1)").clicked() { snarl.insert_node(pos, NodeKind::Instruction { operand_count: 1 }); ui.close(); }
+                if ui.button("UNPACK").clicked()          { snarl.insert_node(pos, NodeKind::Unpack); ui.close(); }
+                if ui.button("SINK").clicked()            { snarl.insert_node(pos, NodeKind::Sink);   ui.close(); }
             }
         }
 	}

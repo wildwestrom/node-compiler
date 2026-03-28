@@ -32,17 +32,20 @@ Edges are typed. The type is determined by the source output port and must match
 
 ## Monomorphization
 
-Nodes that operate over multiple widths (e.g. `And`, `Add`) exist as distinct discriminants in the file format, one per type. The UI presents a single node with a type selector; the selector writes the appropriate discriminant. The loader performs a direct lookup — no type inference.
+The UI and the file format have different representations:
+
+- **UI (`NodeKind`):** Nodes are untyped. An `And` node is just `And` — no width suffix. Wire type is inferred from what is connected at runtime.
+- **File format:** All nodes are fully monomorphized. `And` at `Byte` width is stored as discriminant `AND_BYTE`. The loader performs a direct lookup — no type inference.
 
 ```
-// UI presents:
-And [Byte ▼]
+// UI node kind:
+And   // no type — determined by connected wires
 
-// File stores discriminant:
+// File format discriminant:
 type: AND_BYTE   // fully resolved u16
 ```
 
-This means the file format and the in-memory representation are always identical. There is no deferred resolution pass.
+The editor is responsible for resolving the UI node + wire types to a concrete discriminant when writing the file. The loader is dumb.
 
 ---
 
@@ -121,7 +124,7 @@ Variable-length blob. Each node's payload is at `payload_offset` from the start 
 | `0x0300–0x03FF` | Arithmetic          |
 | `0x0400–0x04FF` | Byte manipulation   |
 | `0x0500–0x05FF` | Scoping / structure |
-| `0x0600–0x06FF` | Binary generation   |
+| `0x0600–0x06FF` | Binary generation (reserved; built-in functions TBD) |
 
 ---
 
@@ -293,59 +296,7 @@ Payload:
 
 ### Binary Generation (`0x0600–0x06FF`)
 
-#### `INSTRUCTION` — `0x0600`
-Encodes a single machine instruction. Input ports are opcode and operands; output is a `Byte` stream.
-
-| Ports      | Type   | Direction |
-|------------|--------|-----------|
-| `opcode`   | `Byte` | Input     |
-| `operand[N]` | `Byte` or `Word` | Input |
-| `out`      | `Byte` | Output stream |
-
-Payload: `1 byte` — operand count N.
-
-#### `LABEL` — `0x0601`
-A named anchor point in the output stream. Emits no bytes itself; produces a `Word` representing the resolved address.
-
-| Ports | Type   | Direction |
-|-------|--------|-----------|
-| `out` | `Word` | Output (address) |
-
-Payload: name string (length-prefixed, same as FUNCTION).
-
-#### `BRANCH_TARGET` — `0x0602`
-Consumes a `Label` address and encodes it as a branch offset or absolute address into the byte stream.
-
-| Ports    | Type   | Direction |
-|----------|--------|-----------|
-| `target` | `Word` | Input (label address) |
-| `base`   | `Word` | Input (current address, for relative encoding) |
-| `out`    | `Byte` | Output stream |
-
-Payload: `1 byte` — encoding mode: `0x00` = absolute, `0x01` = relative.
-
-#### `ELF_HEADER` — `0x0603`
-Produces a standard ELF64 header and program headers as a `Byte` stream.
-
-| Ports         | Type   | Direction |
-|---------------|--------|-----------|
-| `entry`       | `Word` | Input (entry point address) |
-| `text_offset` | `Word` | Input (file offset of .text) |
-| `text_size`   | `Word` | Input (size of .text)        |
-| `out`         | `Byte` | Output stream                |
-
-No payload. Target architecture is fixed at graph/module level (TBD).
-
-#### `PE_HEADER` — `0x0604`
-Produces a PE32+ header as a `Byte` stream.
-
-| Ports           | Type   | Direction |
-|-----------------|--------|-----------|
-| `entry`         | `Word` | Input     |
-| `image_base`    | `Word` | Input     |
-| `out`           | `Byte` | Output stream |
-
-No payload.
+> **Design decision:** Binary generation operations (`INSTRUCTION`, `LABEL`, `BRANCH_TARGET`, `ELF_HEADER`, `PE_HEADER`) are **not** first-class node kinds in the UI. They are exposed as built-in `FUNCTION` nodes. The discriminant range `0x0600–0x06FF` is reserved; its contents are TBD pending the built-in function design.
 
 ---
 
@@ -384,3 +335,4 @@ A conforming file must satisfy all of the following. A loader may reject non-con
 - [ ] Endianness field in header, or always little-endian?
 - [ ] Maximum name length for labels/functions
 - [ ] Versioning strategy — reject unknown versions outright, or have a compatibility range?
+- [ ] Built-in functions: how are they distinguished from user-defined `FUNCTION` nodes in the file format? Special discriminant range, a flag in the payload, or a reserved name prefix?
