@@ -332,10 +332,6 @@ pub enum NodeKind {
 	Module {
 		name: String,
 	},
-	Record {
-		name: String,
-		field_types: Vec<WireType>,
-	},
 }
 
 impl NodeKind {
@@ -366,7 +362,6 @@ impl NodeKind {
 			NodeKind::Unpack => "UNPACK".into(),
 			NodeKind::Function { name, .. } => name.clone(),
 			NodeKind::Module { name } => name.clone(),
-			NodeKind::Record { name, .. } => name.clone(),
 		}
 	}
 
@@ -391,7 +386,6 @@ impl NodeKind {
 			NodeKind::Pack => 8,
 			NodeKind::Concat { count } => *count as usize,
 			NodeKind::Function { in_types, .. } => in_types.len(),
-			NodeKind::Record { field_types, .. } => field_types.len(),
 		}
 	}
 
@@ -429,9 +423,6 @@ impl NodeKind {
 			NodeKind::Unpack => WireType::Byte,
 			NodeKind::Function { in_types, .. } => {
 				in_types.get(port).copied().unwrap_or(WireType::Byte)
-			}
-			NodeKind::Record { field_types, .. } => {
-				field_types.get(port).copied().unwrap_or(WireType::Byte)
 			}
 			_ => WireType::Byte,
 		}
@@ -490,7 +481,6 @@ impl NodeKind {
 			NodeKind::Pack => format!("bit[{port}]"),
 			NodeKind::Unpack => "in".into(),
 			NodeKind::Function { .. } => format!("in[{port}]"),
-			NodeKind::Record { .. } => format!("field[{port}]"),
 			_ => format!("in[{port}]"),
 		}
 	}
@@ -808,16 +798,7 @@ impl SnarlViewer<NodeKind> for NodeGraphViewer<'_> {
 			);
 			ui.close();
 		}
-		if ui.button("Record").clicked() {
-			snarl.insert_node(
-				pos,
-				NodeKind::Record {
-					name: "Unnamed Record".into(),
-					field_types: Vec::new(),
-				},
-			);
-			ui.close();
-		}
+
 		if ui.button("Module").clicked() {
 			snarl.insert_node(
 				pos,
