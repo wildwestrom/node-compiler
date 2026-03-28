@@ -90,8 +90,8 @@ impl NodeValue {
                     "0".into()
                 }
             }
-            NodeValue::Byte(v) => format!("{:#04x}", v),
-            NodeValue::Word(v) => format!("{:#018x}", v),
+            NodeValue::Byte(v) => format!("{:#04X}", v),
+            NodeValue::Word(v) => format!("{:#018X}", v),
             NodeValue::Bytes(v) => {
                 let parts: Vec<String> = v.iter().take(8).map(|b| format!("{:02X}", b)).collect();
                 let suffix = if v.len() > 8 {
