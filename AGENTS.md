@@ -19,22 +19,27 @@ cargo test <name>    # run a single test by name
 cargo fmt            # format
 cargo clippy         # lint
 nix develop          # enter dev shell (NixOS environment)
+rusty-man <crate>    # after running `cargo doc` use it to get documentation
 ```
 
-This project uses jujutsu so for any git commands, use whatever the jj equivalent is.
+This project uses jujutsu so for any git commands, use whatever the `jj` equivalent is.
 
 ## Architecture
 
 ### Key dependencies
+
 - **egui** — immediate-mode GUI framework
 - **egui-snarl** — node graph widget for egui; provides `SnarlViewer` trait to implement for custom node rendering
 
 ### Core types (`src/main.rs`)
+
 - `Value` — runtime value enum (Bytes, Int, Float, Bool, Text, List, Map, Null)
 - `NodeKind` — node type enum covering primitives (Literal, FileSink, FileSource), byte manipulation (Concat, Slice, EncodeU32, DecodeU32), control flow (Map, Fold, Branch), introspection (GraphToList, ListToGraph), and composition (Subgraph)
 
-### Binary file format (NGBF)
+### Binary file format (STRP)
+
 Specified in `node-graph-spec.md`. The format is a flat binary with four sections: `[Header][Topology][Wires][Payload]`, all little-endian. Key design points:
+
 - Fixed-width topology records (24 bytes/node) allow O(1) lookup
 - Wire types are not stored — implied by port definitions of connected node types
 - Nodes are fully monomorphized: `AND_BIT`, `AND_BYTE`, `AND_WORD` are distinct discriminants (no type inference at load time)

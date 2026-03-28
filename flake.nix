@@ -44,6 +44,8 @@
             libxi
             libxrandr
             libxcb
+
+            rusty-man
           ];
           LD_LIBRARY_PATH = libPath;
         };
