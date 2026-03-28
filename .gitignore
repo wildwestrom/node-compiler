@@ -4,3 +4,5 @@
 
 # My custom file format for node graphs
 **/*.ncg
+# Persistence path
+app_persist

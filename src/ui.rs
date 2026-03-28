@@ -9,6 +9,7 @@ use egui_snarl::{
     InPin, InPinId, OutPin, OutPinId, Snarl,
     ui::{AnyPins, SnarlPin, SnarlStyle, SnarlViewer, SnarlWidget},
 };
+use log::{debug, warn};
 use serde::{Deserialize, Serialize};
 
 // ─── Persistence ─────────────────────────────────────────────────────────────
@@ -39,14 +40,22 @@ pub struct App {
     snarl: Snarl<NodeKind>,
     style: SnarlStyle,
     functions: Vec<FunctionDef>,
-    editing: Option<usize>, // Some(idx) = currently editing functions[idx].graph
+    // Some(idx) = currently editing functions[idx].graph
+    editing: Option<usize>,
+    /// Path to the `.ncg` file currently open.
     current_path: Option<PathBuf>,
     working_dir: PathBuf,
     error: Option<String>,
+    /// Serialized bytes of the graph at the last save/load — used for dirty detection.
+    last_saved_state: Vec<u8>,
+    /// Set when a close request arrives while there are unsaved changes.
+    pending_close: bool,
 }
 
+const STORAGE_KEY_LAST_PATH: &str = "last_path";
+
 impl App {
-    pub fn new(_cx: &CreationContext) -> Self {
+    pub fn new(cx: &CreationContext) -> Self {
         let mut snarl = Snarl::new();
 
         let lit = snarl.insert_node(
@@ -67,20 +76,90 @@ impl App {
             },
         );
 
-        Self {
+        let functions: Vec<FunctionDef> = Vec::new();
+        let default_state = SavedState {
+            snarl: snarl.clone(),
+            functions: functions.clone(),
+        };
+        let last_saved_state = postcard::to_allocvec(&default_state).unwrap_or_default();
+
+        let mut app = Self {
             snarl,
             style: SnarlStyle::default(),
-            functions: Vec::new(),
+            functions,
             editing: None,
             current_path: None,
             working_dir: std::env::current_dir().unwrap_or_default(),
             error: None,
+            last_saved_state,
+            pending_close: false,
+        };
+
+        // Reopen the last-used file if it still exists.
+        if let Some(storage) = cx.storage {
+            debug!("Storage exists");
+            if let Some(path_str) = storage.get_string(STORAGE_KEY_LAST_PATH) {
+                debug!("Got path_str: {path_str}");
+                let path = PathBuf::from(path_str);
+                if path.exists() {
+                    match load_state(&path) {
+                        Ok(state) => {
+                            app.last_saved_state =
+                                postcard::to_allocvec(&state).unwrap_or_default();
+                            app.snarl = state.snarl;
+                            app.functions = state.functions;
+                            app.current_path = Some(path);
+                        }
+                        Err(e) => {
+                            app.error = Some(format!("Failed to reopen last file: {e}"));
+                        }
+                    }
+                }
+            } else {
+                debug!("No save state path found: Will be created upon opening a file");
+            }
+        } else {
+            warn!("No storage")
         }
+
+        app
+    }
+
+    fn is_dirty(&self) -> bool {
+        let current = SavedState {
+            snarl: self.snarl.clone(),
+            functions: self.functions.clone(),
+        };
+        postcard::to_allocvec(&current).unwrap_or_default() != self.last_saved_state
+    }
+
+    fn do_save(&mut self, path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+        let state = SavedState {
+            snarl: self.snarl.clone(),
+            functions: self.functions.clone(),
+        };
+        save_state(&state, path)?;
+        self.last_saved_state = postcard::to_allocvec(&state).unwrap_or_default();
+        Ok(())
     }
 }
 
 impl eframe::App for App {
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        if let Some(path) = &self.current_path {
+            storage.set_string(STORAGE_KEY_LAST_PATH, path.to_string_lossy().to_string());
+        }
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Intercept close requests: if there are unsaved changes, cancel the close and show the
+        // save/discard dialog instead.
+        if ctx.input(|i| i.viewport().close_requested()) {
+            if self.is_dirty() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                self.pending_close = true;
+            }
+        }
         // Snapshot function signatures to pass to the viewer without borrow conflicts.
         // Types are derived live from each subgraph's Source/Sink nodes.
         let fn_sigs: Vec<(String, Vec<WireType>, Vec<WireType>)> = self
@@ -104,6 +183,8 @@ impl eframe::App for App {
                         {
                             match load_state(&path) {
                                 Ok(state) => {
+                                    self.last_saved_state =
+                                        postcard::to_allocvec(&state).unwrap_or_default();
                                     self.snarl = state.snarl;
                                     self.functions = state.functions;
                                     self.editing = None;
@@ -119,11 +200,7 @@ impl eframe::App for App {
                     {
                         ui.close();
                         let path = self.current_path.clone().unwrap();
-                        let state = SavedState {
-                            snarl: self.snarl.clone(),
-                            functions: self.functions.clone(),
-                        };
-                        if let Err(e) = save_state(&state, &path) {
+                        if let Err(e) = self.do_save(&path) {
                             self.error = Some(format!("Failed to save: {e}"));
                         }
                     }
@@ -134,11 +211,7 @@ impl eframe::App for App {
                             .set_file_name("Untitled.ncg")
                             .save_file()
                         {
-                            let state = SavedState {
-                                snarl: self.snarl.clone(),
-                                functions: self.functions.clone(),
-                            };
-                            match save_state(&state, &path) {
+                            match self.do_save(&path) {
                                 Ok(()) => self.current_path = Some(path),
                                 Err(e) => self.error = Some(format!("Failed to save: {e}")),
                             }
@@ -178,6 +251,63 @@ impl eframe::App for App {
                     if ui.button("OK").clicked() {
                         self.error = None;
                     }
+                });
+        }
+
+        // Save/discard dialog shown when the user closes with unsaved changes.
+        if self.pending_close {
+            egui::Window::new("Unsaved changes")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                .show(ctx, |ui| {
+                    ui.label("You have unsaved changes.");
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("Save").clicked() {
+                            if let Some(path) = self.current_path.clone() {
+                                match self.do_save(&path) {
+                                    Ok(()) => {
+                                        self.pending_close = false;
+                                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                                    }
+                                    Err(e) => {
+                                        self.error = Some(format!("Failed to save: {e}"));
+                                    }
+                                }
+                            } else if let Some(path) = rfd::FileDialog::new()
+                                .add_filter("Node graph", &["ncg"])
+                                .set_file_name("Untitled.ncg")
+                                .save_file()
+                            {
+                                match self.do_save(&path) {
+                                    Ok(()) => {
+                                        self.current_path = Some(path);
+                                        self.pending_close = false;
+                                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                                    }
+                                    Err(e) => {
+                                        self.error = Some(format!("Failed to save: {e}"));
+                                    }
+                                }
+                            }
+                        }
+                        if ui.button("Discard").clicked() {
+                            self.pending_close = false;
+                            // Sync last_saved_state so the close-request intercept
+                            // doesn't fire again on the next frame.
+                            let current = SavedState {
+                                snarl: self.snarl.clone(),
+                                functions: self.functions.clone(),
+                            };
+                            self.last_saved_state =
+                                postcard::to_allocvec(&current).unwrap_or_default();
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                        if ui.button("Cancel").clicked() {
+                            self.pending_close = false;
+                        }
+                    });
                 });
         }
 
