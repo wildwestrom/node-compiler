@@ -70,6 +70,7 @@ impl App {
                     spacing: (50.0, 50.0).into(),
                     angle: 0.0, //_f32.to_radians(),
                 })),
+                pin_placement: Some(egui_snarl::ui::PinPlacement::Edge),
                 ..Default::default()
             },
             functions,
