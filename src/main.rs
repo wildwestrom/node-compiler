@@ -1,5 +1,5 @@
-mod the_meat;
-use the_meat::App;
+mod ui;
+use ui::App;
 
 // Just the entry point of this
 #[cfg(not(target_arch = "wasm32"))]
