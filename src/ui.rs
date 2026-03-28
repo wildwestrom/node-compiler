@@ -10,7 +10,7 @@ use eframe::CreationContext;
 use egui::Id;
 use egui_snarl::{
     InPinId, OutPinId, Snarl,
-    ui::{SnarlStyle, SnarlWidget},
+    ui::{BackgroundPattern, SnarlStyle, SnarlWidget},
 };
 use log::{debug, warn};
 
@@ -65,7 +65,13 @@ impl App {
 
         let mut app = Self {
             snarl,
-            style: SnarlStyle::default(),
+            style: SnarlStyle {
+                bg_pattern: Some(BackgroundPattern::Grid(egui_snarl::ui::Grid {
+                    spacing: (50.0, 50.0).into(),
+                    angle: 0.0, //_f32.to_radians(),
+                })),
+                ..Default::default()
+            },
             functions,
             editing: None,
             current_path: None,
@@ -200,7 +206,21 @@ impl eframe::App for App {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                 });
-                ui.add_space(16.0);
+                if let Some(pathstr) = self
+                    .current_path
+                    .as_ref()
+                    .and_then(|p| p.strip_prefix(&self.working_dir).unwrap_or(p).to_str())
+                {
+                    let center_x = ui.clip_rect().center().x;
+                    let center_y = ui.cursor().min.y + ui.spacing().interact_size.y / 2.0;
+                    ui.painter().text(
+                        egui::pos2(center_x, center_y),
+                        egui::Align2::CENTER_CENTER,
+                        pathstr,
+                        egui::FontId::default(),
+                        ui.visuals().text_color(),
+                    );
+                }
             });
         });
 
