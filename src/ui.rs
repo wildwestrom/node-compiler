@@ -6,8 +6,8 @@ use std::path::PathBuf;
 use eframe::CreationContext;
 use egui::Id;
 use egui_snarl::{
-	InPin, InPinId, OutPin, OutPinId, Snarl,
-	ui::{AnyPins, SnarlPin, SnarlStyle, SnarlViewer, SnarlWidget},
+    InPin, InPinId, OutPin, OutPinId, Snarl,
+    ui::{AnyPins, SnarlPin, SnarlStyle, SnarlViewer, SnarlWidget},
 };
 use serde::{Deserialize, Serialize};
 
@@ -15,597 +15,597 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 struct SavedState {
-	snarl: Snarl<NodeKind>,
-	functions: Vec<FunctionDef>,
+    snarl: Snarl<NodeKind>,
+    functions: Vec<FunctionDef>,
 }
 
 fn save_state(
-	state: &SavedState,
-	path: &std::path::Path,
+    state: &SavedState,
+    path: &std::path::Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-	let bytes = postcard::to_allocvec(state)?;
-	std::fs::write(path, bytes)?;
-	Ok(())
+    let bytes = postcard::to_allocvec(state)?;
+    std::fs::write(path, bytes)?;
+    Ok(())
 }
 
 fn load_state(path: &std::path::Path) -> Result<SavedState, Box<dyn std::error::Error>> {
-	let bytes = std::fs::read(path)?;
-	Ok(postcard::from_bytes(&bytes)?)
+    let bytes = std::fs::read(path)?;
+    Ok(postcard::from_bytes(&bytes)?)
 }
 
 // ─── App ─────────────────────────────────────────────────────────────────────
 
 pub struct App {
-	snarl: Snarl<NodeKind>,
-	style: SnarlStyle,
-	functions: Vec<FunctionDef>,
-	editing: Option<usize>, // Some(idx) = currently editing functions[idx].graph
-	current_path: Option<PathBuf>,
-	working_dir: PathBuf,
-	error: Option<String>,
+    snarl: Snarl<NodeKind>,
+    style: SnarlStyle,
+    functions: Vec<FunctionDef>,
+    editing: Option<usize>, // Some(idx) = currently editing functions[idx].graph
+    current_path: Option<PathBuf>,
+    working_dir: PathBuf,
+    error: Option<String>,
 }
 
 impl App {
-	pub fn new(_cx: &CreationContext) -> Self {
-		let mut snarl = Snarl::new();
+    pub fn new(_cx: &CreationContext) -> Self {
+        let mut snarl = Snarl::new();
 
-		let lit = snarl.insert_node(
-			egui::pos2(-200.0, 0.0),
-			NodeKind::Source {
-				filename: "".into(),
-			},
-		);
-		let sink = snarl.insert_node(egui::pos2(100.0, 0.0), NodeKind::Sink);
-		snarl.connect(
-			OutPinId {
-				node: lit,
-				output: 0,
-			},
-			InPinId {
-				node: sink,
-				input: 0,
-			},
-		);
+        let lit = snarl.insert_node(
+            egui::pos2(-200.0, 0.0),
+            NodeKind::Source {
+                filename: "".into(),
+            },
+        );
+        let sink = snarl.insert_node(egui::pos2(100.0, 0.0), NodeKind::Sink);
+        snarl.connect(
+            OutPinId {
+                node: lit,
+                output: 0,
+            },
+            InPinId {
+                node: sink,
+                input: 0,
+            },
+        );
 
-		Self {
-			snarl,
-			style: SnarlStyle::default(),
-			functions: Vec::new(),
-			editing: None,
-			current_path: None,
-			working_dir: std::env::current_dir().unwrap_or_default(),
-			error: None,
-		}
-	}
+        Self {
+            snarl,
+            style: SnarlStyle::default(),
+            functions: Vec::new(),
+            editing: None,
+            current_path: None,
+            working_dir: std::env::current_dir().unwrap_or_default(),
+            error: None,
+        }
+    }
 }
 
 impl eframe::App for App {
-	fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-		// Snapshot function signatures to pass to the viewer without borrow conflicts.
-		// Types are derived live from each subgraph's Source/Sink nodes.
-		let fn_sigs: Vec<(String, Vec<WireType>, Vec<WireType>)> = self
-			.functions
-			.iter()
-			.map(|f| {
-				let (in_types, out_types) = f.call_types();
-				(f.display_name(), in_types, out_types)
-			})
-			.collect();
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Snapshot function signatures to pass to the viewer without borrow conflicts.
+        // Types are derived live from each subgraph's Source/Sink nodes.
+        let fn_sigs: Vec<(String, Vec<WireType>, Vec<WireType>)> = self
+            .functions
+            .iter()
+            .map(|f| {
+                let (in_types, out_types) = f.call_types();
+                (f.display_name(), in_types, out_types)
+            })
+            .collect();
 
-		egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-			egui::MenuBar::new().ui(ui, |ui| {
-				ui.menu_button("File", |ui| {
-					if ui.button("Open…").clicked() {
-						ui.close();
-						if let Some(path) = rfd::FileDialog::new()
-							.add_filter("Node graph", &["ncg"])
-							.set_directory(&self.working_dir)
-							.pick_file()
-						{
-							match load_state(&path) {
-								Ok(state) => {
-									self.snarl = state.snarl;
-									self.functions = state.functions;
-									self.editing = None;
-									self.current_path = Some(path);
-								}
-								Err(e) => self.error = Some(format!("Failed to open: {e}")),
-							}
-						}
-					}
-					if ui
-						.add_enabled(self.current_path.is_some(), egui::Button::new("Save"))
-						.clicked()
-					{
-						ui.close();
-						let path = self.current_path.clone().unwrap();
-						let state = SavedState {
-							snarl: self.snarl.clone(),
-							functions: self.functions.clone(),
-						};
-						if let Err(e) = save_state(&state, &path) {
-							self.error = Some(format!("Failed to save: {e}"));
-						}
-					}
-					if ui.button("Save As…").clicked() {
-						ui.close();
-						if let Some(path) = rfd::FileDialog::new()
-							.add_filter("Node graph", &["ncg"])
-							.set_file_name("Untitled.ncg")
-							.save_file()
-						{
-							let state = SavedState {
-								snarl: self.snarl.clone(),
-								functions: self.functions.clone(),
-							};
-							match save_state(&state, &path) {
-								Ok(()) => self.current_path = Some(path),
-								Err(e) => self.error = Some(format!("Failed to save: {e}")),
-							}
-						}
-					}
-					ui.separator();
-					if ui.button("Quit").clicked() {
-						ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-					}
-				});
-				ui.add_space(16.0);
-			});
-		});
+        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
+                ui.menu_button("File", |ui| {
+                    if ui.button("Open…").clicked() {
+                        ui.close();
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("Node graph", &["ncg"])
+                            .set_directory(&self.working_dir)
+                            .pick_file()
+                        {
+                            match load_state(&path) {
+                                Ok(state) => {
+                                    self.snarl = state.snarl;
+                                    self.functions = state.functions;
+                                    self.editing = None;
+                                    self.current_path = Some(path);
+                                }
+                                Err(e) => self.error = Some(format!("Failed to open: {e}")),
+                            }
+                        }
+                    }
+                    if ui
+                        .add_enabled(self.current_path.is_some(), egui::Button::new("Save"))
+                        .clicked()
+                    {
+                        ui.close();
+                        let path = self.current_path.clone().unwrap();
+                        let state = SavedState {
+                            snarl: self.snarl.clone(),
+                            functions: self.functions.clone(),
+                        };
+                        if let Err(e) = save_state(&state, &path) {
+                            self.error = Some(format!("Failed to save: {e}"));
+                        }
+                    }
+                    if ui.button("Save As…").clicked() {
+                        ui.close();
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("Node graph", &["ncg"])
+                            .set_file_name("Untitled.ncg")
+                            .save_file()
+                        {
+                            let state = SavedState {
+                                snarl: self.snarl.clone(),
+                                functions: self.functions.clone(),
+                            };
+                            match save_state(&state, &path) {
+                                Ok(()) => self.current_path = Some(path),
+                                Err(e) => self.error = Some(format!("Failed to save: {e}")),
+                            }
+                        }
+                    }
+                    ui.separator();
+                    if ui.button("Quit").clicked() {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                });
+                ui.add_space(16.0);
+            });
+        });
 
-		// Breadcrumb bar when editing a function subgraph.
-		if let Some(idx) = self.editing {
-			egui::TopBottomPanel::top("breadcrumb").show(ctx, |ui| {
-				ui.horizontal(|ui| {
-					if ui.button("< Root").clicked() {
-						self.editing = None;
-					}
-					ui.label("›");
-					ui.text_edit_singleline(&mut self.functions[idx].name);
-				});
-			});
-		}
+        // Breadcrumb bar when editing a function subgraph.
+        if let Some(idx) = self.editing {
+            egui::TopBottomPanel::top("breadcrumb").show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    if ui.button("< Root").clicked() {
+                        self.editing = None;
+                    }
+                    ui.label("›");
+                    ui.text_edit_singleline(&mut self.functions[idx].name);
+                });
+            });
+        }
 
-		// Error dialog.
-		if let Some(msg) = self.error.clone() {
-			egui::Window::new("Error")
-				.collapsible(false)
-				.resizable(false)
-				.anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-				.show(ctx, |ui| {
-					ui.label(&msg);
-					ui.add_space(8.0);
-					if ui.button("OK").clicked() {
-						self.error = None;
-					}
-				});
-		}
+        // Error dialog.
+        if let Some(msg) = self.error.clone() {
+            egui::Window::new("Error")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                .show(ctx, |ui| {
+                    ui.label(&msg);
+                    ui.add_space(8.0);
+                    if ui.button("OK").clicked() {
+                        self.error = None;
+                    }
+                });
+        }
 
-		// Sidebar: function library.
-		egui::SidePanel::left("function_sidebar").show(ctx, |ui| {
-			ui.heading("Functions");
-			if ui.button("+ New").clicked() {
-				self.functions.push(FunctionDef::new("Unnamed"));
-				self.editing = Some(self.functions.len() - 1);
-			}
-			ui.separator();
+        // Sidebar: function library.
+        egui::SidePanel::left("function_sidebar").show(ctx, |ui| {
+            ui.heading("Functions");
+            if ui.button("+ New").clicked() {
+                self.functions.push(FunctionDef::new("Unnamed"));
+                self.editing = Some(self.functions.len() - 1);
+            }
+            ui.separator();
 
-			let n = self.functions.len();
-			let mut to_delete: Option<usize> = None;
-			let mut to_edit: Option<usize> = None;
-			let mut to_add: Option<usize> = None;
+            let n = self.functions.len();
+            let mut to_delete: Option<usize> = None;
+            let mut to_edit: Option<usize> = None;
+            let mut to_add: Option<usize> = None;
 
-			for i in 0..n {
-				ui.horizontal(|ui| {
-					ui.label(&self.functions[i].name);
-					if ui.small_button("Edit").clicked() {
-						to_edit = Some(i);
-					}
-					if ui.small_button("Add").clicked() {
-						to_add = Some(i);
-					}
-					if ui.small_button("Delete").clicked() {
-						to_delete = Some(i);
-					}
-				});
-			}
+            for i in 0..n {
+                ui.horizontal(|ui| {
+                    ui.label(&self.functions[i].name);
+                    if ui.small_button("Edit").clicked() {
+                        to_edit = Some(i);
+                    }
+                    if ui.small_button("Add").clicked() {
+                        to_add = Some(i);
+                    }
+                    if ui.small_button("Delete").clicked() {
+                        to_delete = Some(i);
+                    }
+                });
+            }
 
-			if let Some(i) = to_edit {
-				self.editing = Some(i);
-			}
-			if let Some(i) = to_add {
-				let (in_types, out_types) = self.functions[i].call_types();
-				let node = NodeKind::FunctionCall {
-					def_index: i,
-					name: self.functions[i].name.clone(),
-					in_types,
-					out_types,
-				};
-				self.snarl.insert_node(egui::pos2(0.0, 0.0), node);
-			}
-			if let Some(i) = to_delete {
-				self.functions.remove(i);
-				// TODO: fix stale def_index in FunctionCall nodes after deletion
-				if self.editing == Some(i) {
-					self.editing = None;
-				}
-			}
-		});
+            if let Some(i) = to_edit {
+                self.editing = Some(i);
+            }
+            if let Some(i) = to_add {
+                let (in_types, out_types) = self.functions[i].call_types();
+                let node = NodeKind::FunctionCall {
+                    def_index: i,
+                    name: self.functions[i].name.clone(),
+                    in_types,
+                    out_types,
+                };
+                self.snarl.insert_node(egui::pos2(0.0, 0.0), node);
+            }
+            if let Some(i) = to_delete {
+                self.functions.remove(i);
+                // TODO: fix stale def_index in FunctionCall nodes after deletion
+                if self.editing == Some(i) {
+                    self.editing = None;
+                }
+            }
+        });
 
-		egui::CentralPanel::default().show(ctx, |ui| match self.editing {
-			None => {
-				let cache = eval_graph(&self.snarl, &self.functions);
-				SnarlWidget::new()
-					.id(Id::new("root_snarl"))
-					.style(self.style)
-					.show(
-						&mut self.snarl,
-						&mut NodeGraphViewer {
-							cache: &cache,
-							fn_sigs: &fn_sigs,
-							in_subgraph: false,
-						},
-						ui,
-					);
-			}
-			Some(idx) => {
-				let cache = eval_graph(&self.functions[idx].graph, &self.functions);
-				SnarlWidget::new()
-					.id(Id::new(("fn_snarl", idx)))
-					.style(self.style)
-					.show(
-						&mut self.functions[idx].graph,
-						&mut NodeGraphViewer {
-							cache: &cache,
-							fn_sigs: &fn_sigs,
-							in_subgraph: true,
-						},
-						ui,
-					);
-			}
-		});
-	}
+        egui::CentralPanel::default().show(ctx, |ui| match self.editing {
+            None => {
+                let cache = eval_graph(&self.snarl, &self.functions);
+                SnarlWidget::new()
+                    .id(Id::new("root_snarl"))
+                    .style(self.style)
+                    .show(
+                        &mut self.snarl,
+                        &mut NodeGraphViewer {
+                            cache: &cache,
+                            fn_sigs: &fn_sigs,
+                            in_subgraph: false,
+                        },
+                        ui,
+                    );
+            }
+            Some(idx) => {
+                let cache = eval_graph(&self.functions[idx].graph, &self.functions);
+                SnarlWidget::new()
+                    .id(Id::new(("fn_snarl", idx)))
+                    .style(self.style)
+                    .show(
+                        &mut self.functions[idx].graph,
+                        &mut NodeGraphViewer {
+                            cache: &cache,
+                            fn_sigs: &fn_sigs,
+                            in_subgraph: true,
+                        },
+                        ui,
+                    );
+            }
+        });
+    }
 }
 
 // ─── Viewer ──────────────────────────────────────────────────────────────────
 
 struct NodeGraphViewer<'a> {
-	cache: &'a EvalCache,
-	fn_sigs: &'a [(String, Vec<WireType>, Vec<WireType>)],
-	in_subgraph: bool,
+    cache: &'a EvalCache,
+    fn_sigs: &'a [(String, Vec<WireType>, Vec<WireType>)],
+    in_subgraph: bool,
 }
 
 impl NodeGraphViewer<'_> {
-	/// Render the cached value for an output pin as dim monospace text.
-	fn show_value(&self, pin: OutPinId, ui: &mut egui::Ui) {
-		if let Some(Some(val)) = self.cache.get(&pin) {
-			ui.label(
-				egui::RichText::new(val.short_display())
-					.weak()
-					.monospace()
-					.small(),
-			);
-		}
-	}
+    /// Render the cached value for an output pin as dim monospace text.
+    fn show_value(&self, pin: OutPinId, ui: &mut egui::Ui) {
+        if let Some(Some(val)) = self.cache.get(&pin) {
+            ui.label(
+                egui::RichText::new(val.short_display())
+                    .weak()
+                    .monospace()
+                    .small(),
+            );
+        }
+    }
 }
 
 impl SnarlViewer<NodeKind> for NodeGraphViewer<'_> {
-	// ── Required ──────────────────────────────────────────────────────────
+    // ── Required ──────────────────────────────────────────────────────────
 
-	fn title(&mut self, node: &NodeKind) -> String {
-		match node {
-			// Look up live display name (includes hash for anonymous functions).
-			NodeKind::FunctionCall {
-				def_index, name, ..
-			} => self
-				.fn_sigs
-				.get(*def_index)
-				.map(|(n, _, _)| n.clone())
-				.unwrap_or_else(|| name.clone()),
-			_ => node.node_title(),
-		}
-	}
+    fn title(&mut self, node: &NodeKind) -> String {
+        match node {
+            // Look up live display name (includes hash for anonymous functions).
+            NodeKind::FunctionCall {
+                def_index, name, ..
+            } => self
+                .fn_sigs
+                .get(*def_index)
+                .map(|(n, _, _)| n.clone())
+                .unwrap_or_else(|| name.clone()),
+            _ => node.node_title(),
+        }
+    }
 
-	fn inputs(&mut self, node: &NodeKind) -> usize {
-		node.input_count()
-	}
+    fn inputs(&mut self, node: &NodeKind) -> usize {
+        node.input_count()
+    }
 
-	fn outputs(&mut self, node: &NodeKind) -> usize {
-		node.output_count()
-	}
+    fn outputs(&mut self, node: &NodeKind) -> usize {
+        node.output_count()
+    }
 
-	fn show_input(
-		&mut self,
-		pin: &InPin,
-		ui: &mut egui::Ui,
-		snarl: &mut Snarl<NodeKind>,
-	) -> impl SnarlPin + 'static {
-		let wt = snarl[pin.id.node].input_wire_type(pin.id.input);
-		let label = snarl[pin.id.node].input_label(pin.id.input);
-		ui.label(label);
-		wt.pin_info()
-	}
+    fn show_input(
+        &mut self,
+        pin: &InPin,
+        ui: &mut egui::Ui,
+        snarl: &mut Snarl<NodeKind>,
+    ) -> impl SnarlPin + 'static {
+        let wt = snarl[pin.id.node].input_wire_type(pin.id.input);
+        let label = snarl[pin.id.node].input_label(pin.id.input);
+        ui.label(label);
+        wt.pin_info()
+    }
 
-	fn show_output(
-		&mut self,
-		pin: &OutPin,
-		ui: &mut egui::Ui,
-		snarl: &mut Snarl<NodeKind>,
-	) -> impl SnarlPin + 'static {
-		let wt = snarl[pin.id.node].output_wire_type(pin.id.output);
-		let port = pin.id.output;
+    fn show_output(
+        &mut self,
+        pin: &OutPin,
+        ui: &mut egui::Ui,
+        snarl: &mut Snarl<NodeKind>,
+    ) -> impl SnarlPin + 'static {
+        let wt = snarl[pin.id.node].output_wire_type(pin.id.output);
+        let port = pin.id.output;
 
-		match &mut snarl[pin.id.node] {
-			// Constant: each port has one editable value widget.
-			NodeKind::Constant(values) => {
-				if let Some(val) = values.get_mut(port) {
-					match val {
-						NodeValue::Bit(v) => {
-							ui.checkbox(v, "");
-						}
-						NodeValue::Byte(v) => {
-							ui.add(egui::DragValue::new(v).hexadecimal(2, false, true));
-						}
-						NodeValue::Word(v) => {
-							ui.add(egui::DragValue::new(v).hexadecimal(16, false, true));
-						}
-						NodeValue::Bytes(_) => {
-							ui.label("(bytes)");
-						}
-					}
-				}
-			}
+        match &mut snarl[pin.id.node] {
+            // Constant: each port has one editable value widget.
+            NodeKind::Constant(values) => {
+                if let Some(val) = values.get_mut(port) {
+                    match val {
+                        NodeValue::Bit(v) => {
+                            ui.checkbox(v, "");
+                        }
+                        NodeValue::Byte(v) => {
+                            ui.add(egui::DragValue::new(v).hexadecimal(2, false, true));
+                        }
+                        NodeValue::Word(v) => {
+                            ui.add(egui::DragValue::new(v).hexadecimal(16, false, true));
+                        }
+                        NodeValue::Bytes(_) => {
+                            ui.label("(bytes)");
+                        }
+                    }
+                }
+            }
 
-			// Computed nodes: label + cached value.
-			NodeKind::Unpack => {
-				ui.label(format!("bit[{port}]"));
-				self.show_value(pin.id, ui);
-			}
-			NodeKind::FunctionCall { out_types, .. } => {
-				ui.label(format!(
-					"out[{port}] ({})",
-					out_types.get(port).unwrap_or(&WireType::Byte).label()
-				));
-				self.show_value(pin.id, ui);
-			}
-			_ => {
-				ui.label("out");
-				self.show_value(pin.id, ui);
-			}
-		}
+            // Computed nodes: label + cached value.
+            NodeKind::Unpack => {
+                ui.label(format!("bit[{port}]"));
+                self.show_value(pin.id, ui);
+            }
+            NodeKind::FunctionCall { out_types, .. } => {
+                ui.label(format!(
+                    "out[{port}] ({})",
+                    out_types.get(port).unwrap_or(&WireType::Byte).label()
+                ));
+                self.show_value(pin.id, ui);
+            }
+            _ => {
+                ui.label("out");
+                self.show_value(pin.id, ui);
+            }
+        }
 
-		wt.pin_info()
-	}
+        wt.pin_info()
+    }
 
-	// ── Node body — used for the Sink to show its incoming value ──────────
+    // ── Node body — used for the Sink to show its incoming value ──────────
 
-	fn has_body(&mut self, node: &NodeKind) -> bool {
-		matches!(node, NodeKind::Sink)
-	}
+    fn has_body(&mut self, node: &NodeKind) -> bool {
+        matches!(node, NodeKind::Sink)
+    }
 
-	fn show_body(
-		&mut self,
-		_node: egui_snarl::NodeId,
-		inputs: &[InPin],
-		_outputs: &[OutPin],
-		ui: &mut egui::Ui,
-		_snarl: &mut Snarl<NodeKind>,
-	) {
-		match inputs.first().and_then(|p| p.remotes.first()) {
-			Some(src) => match self.cache.get(src) {
-				Some(Some(val)) => {
-					ui.label(egui::RichText::new(val.short_display()).monospace());
-				}
-				_ => {
-					ui.label(egui::RichText::new("?").weak());
-				}
-			},
-			None => {
-				ui.label(egui::RichText::new("(unconnected)").weak().italics());
-			}
-		}
-	}
+    fn show_body(
+        &mut self,
+        _node: egui_snarl::NodeId,
+        inputs: &[InPin],
+        _outputs: &[OutPin],
+        ui: &mut egui::Ui,
+        _snarl: &mut Snarl<NodeKind>,
+    ) {
+        match inputs.first().and_then(|p| p.remotes.first()) {
+            Some(src) => match self.cache.get(src) {
+                Some(Some(val)) => {
+                    ui.label(egui::RichText::new(val.short_display()).monospace());
+                }
+                _ => {
+                    ui.label(egui::RichText::new("?").weak());
+                }
+            },
+            None => {
+                ui.label(egui::RichText::new("(unconnected)").weak().italics());
+            }
+        }
+    }
 
-	// ── Node footer — used for the Constant add-output buttons ───────────
+    // ── Node footer — used for the Constant add-output buttons ───────────
 
-	fn has_footer(&mut self, node: &NodeKind) -> bool {
-		matches!(node, NodeKind::Constant(_))
-	}
+    fn has_footer(&mut self, node: &NodeKind) -> bool {
+        matches!(node, NodeKind::Constant(_))
+    }
 
-	fn show_footer(
-		&mut self,
-		node: egui_snarl::NodeId,
-		_inputs: &[InPin],
-		_outputs: &[OutPin],
-		ui: &mut egui::Ui,
-		snarl: &mut Snarl<NodeKind>,
-	) {
-		if let NodeKind::Constant(values) = &mut snarl[node] {
-			ui.horizontal(|ui| {
-				if ui.small_button("+ Bit").clicked() {
-					values.push(NodeValue::Bit(false));
-				}
-				if ui.small_button("+ Byte").clicked() {
-					values.push(NodeValue::Byte(0));
-				}
-				if ui.small_button("+ Word").clicked() {
-					values.push(NodeValue::Word(0));
-				}
-			});
-		}
-	}
+    fn show_footer(
+        &mut self,
+        node: egui_snarl::NodeId,
+        _inputs: &[InPin],
+        _outputs: &[OutPin],
+        ui: &mut egui::Ui,
+        snarl: &mut Snarl<NodeKind>,
+    ) {
+        if let NodeKind::Constant(values) = &mut snarl[node] {
+            ui.horizontal(|ui| {
+                if ui.small_button("+ Bit").clicked() {
+                    values.push(NodeValue::Bit(false));
+                }
+                if ui.small_button("+ Byte").clicked() {
+                    values.push(NodeValue::Byte(0));
+                }
+                if ui.small_button("+ Word").clicked() {
+                    values.push(NodeValue::Word(0));
+                }
+            });
+        }
+    }
 
-	// ── Wire connection ───────────────────────────────────────────────────
+    // ── Wire connection ───────────────────────────────────────────────────
 
-	fn connect(&mut self, from: &OutPin, to: &InPin, snarl: &mut Snarl<NodeKind>) {
-		let from_type = snarl[from.id.node].output_wire_type(from.id.output);
-		let to_type = snarl[to.id.node].input_wire_type(to.id.input);
+    fn connect(&mut self, from: &OutPin, to: &InPin, snarl: &mut Snarl<NodeKind>) {
+        let from_type = snarl[from.id.node].output_wire_type(from.id.output);
+        let to_type = snarl[to.id.node].input_wire_type(to.id.input);
 
-		if from_type != to_type {
-			return;
-		}
+        if from_type != to_type {
+            return;
+        }
 
-		for &remote in &to.remotes {
-			snarl.disconnect(remote, to.id);
-		}
-		snarl.connect(from.id, to.id);
-	}
+        for &remote in &to.remotes {
+            snarl.disconnect(remote, to.id);
+        }
+        snarl.connect(from.id, to.id);
+    }
 
-	// ── Context menus ─────────────────────────────────────────────────────
+    // ── Context menus ─────────────────────────────────────────────────────
 
-	fn has_graph_menu(&mut self, _pos: egui::Pos2, _snarl: &mut Snarl<NodeKind>) -> bool {
-		true
-	}
+    fn has_graph_menu(&mut self, _pos: egui::Pos2, _snarl: &mut Snarl<NodeKind>) -> bool {
+        true
+    }
 
-	fn show_graph_menu(&mut self, pos: egui::Pos2, ui: &mut egui::Ui, snarl: &mut Snarl<NodeKind>) {
-		ui.label("Add node:");
-		ui.separator();
+    fn show_graph_menu(&mut self, pos: egui::Pos2, ui: &mut egui::Ui, snarl: &mut Snarl<NodeKind>) {
+        ui.label("Add node:");
+        ui.separator();
 
-		if ui.button("Constant").clicked() {
-			snarl.insert_node(pos, NodeKind::Constant(Vec::new()));
-			ui.close();
-		}
+        if ui.button("Constant").clicked() {
+            snarl.insert_node(pos, NodeKind::Constant(Vec::new()));
+            ui.close();
+        }
 
-		ui.separator();
+        ui.separator();
 
-		ui.menu_button("Bitwise", |ui| {
-			if ui.button("AND").clicked() {
-				snarl.insert_node(pos, NodeKind::And);
-				ui.close();
-			}
-			if ui.button("OR").clicked() {
-				snarl.insert_node(pos, NodeKind::Or);
-				ui.close();
-			}
-			if ui.button("XOR").clicked() {
-				snarl.insert_node(pos, NodeKind::Xor);
-				ui.close();
-			}
-			if ui.button("NOT").clicked() {
-				snarl.insert_node(pos, NodeKind::Not);
-				ui.close();
-			}
-			if ui.button("NAND").clicked() {
-				snarl.insert_node(pos, NodeKind::Nand);
-				ui.close();
-			}
-			if ui.button("NOR").clicked() {
-				snarl.insert_node(pos, NodeKind::Nor);
-				ui.close();
-			}
-			if ui.button("SHL").clicked() {
-				snarl.insert_node(pos, NodeKind::Shl);
-				ui.close();
-			}
-			if ui.button("SHR").clicked() {
-				snarl.insert_node(pos, NodeKind::Shr);
-				ui.close();
-			}
-		});
+        ui.menu_button("Bitwise", |ui| {
+            if ui.button("AND").clicked() {
+                snarl.insert_node(pos, NodeKind::And);
+                ui.close();
+            }
+            if ui.button("OR").clicked() {
+                snarl.insert_node(pos, NodeKind::Or);
+                ui.close();
+            }
+            if ui.button("XOR").clicked() {
+                snarl.insert_node(pos, NodeKind::Xor);
+                ui.close();
+            }
+            if ui.button("NOT").clicked() {
+                snarl.insert_node(pos, NodeKind::Not);
+                ui.close();
+            }
+            if ui.button("NAND").clicked() {
+                snarl.insert_node(pos, NodeKind::Nand);
+                ui.close();
+            }
+            if ui.button("NOR").clicked() {
+                snarl.insert_node(pos, NodeKind::Nor);
+                ui.close();
+            }
+            if ui.button("SHL").clicked() {
+                snarl.insert_node(pos, NodeKind::Shl);
+                ui.close();
+            }
+            if ui.button("SHR").clicked() {
+                snarl.insert_node(pos, NodeKind::Shr);
+                ui.close();
+            }
+        });
 
-		ui.menu_button("Arithmetic", |ui| {
-			if ui.button("ADD").clicked() {
-				snarl.insert_node(pos, NodeKind::Add);
-				ui.close();
-			}
-			if ui.button("SUB").clicked() {
-				snarl.insert_node(pos, NodeKind::Sub);
-				ui.close();
-			}
-			if ui.button("MUL").clicked() {
-				snarl.insert_node(pos, NodeKind::Mul);
-				ui.close();
-			}
-			if ui.button("DIV").clicked() {
-				snarl.insert_node(pos, NodeKind::Div);
-				ui.close();
-			}
-			if ui.button("MOD").clicked() {
-				snarl.insert_node(pos, NodeKind::Mod);
-				ui.close();
-			}
-		});
+        ui.menu_button("Arithmetic", |ui| {
+            if ui.button("ADD").clicked() {
+                snarl.insert_node(pos, NodeKind::Add);
+                ui.close();
+            }
+            if ui.button("SUB").clicked() {
+                snarl.insert_node(pos, NodeKind::Sub);
+                ui.close();
+            }
+            if ui.button("MUL").clicked() {
+                snarl.insert_node(pos, NodeKind::Mul);
+                ui.close();
+            }
+            if ui.button("DIV").clicked() {
+                snarl.insert_node(pos, NodeKind::Div);
+                ui.close();
+            }
+            if ui.button("MOD").clicked() {
+                snarl.insert_node(pos, NodeKind::Mod);
+                ui.close();
+            }
+        });
 
-		ui.menu_button("Byte manipulation", |ui| {
-			if ui.button("CONCAT (2)").clicked() {
-				snarl.insert_node(pos, NodeKind::Concat { count: 2 });
-				ui.close();
-			}
-			if ui.button("CONCAT (4)").clicked() {
-				snarl.insert_node(pos, NodeKind::Concat { count: 4 });
-				ui.close();
-			}
-			if ui.button("SLICE").clicked() {
-				snarl.insert_node(pos, NodeKind::Slice);
-				ui.close();
-			}
-			if ui.button("PACK").clicked() {
-				snarl.insert_node(pos, NodeKind::Pack);
-				ui.close();
-			}
-			if ui.button("UNPACK").clicked() {
-				snarl.insert_node(pos, NodeKind::Unpack);
-				ui.close();
-			}
-		});
+        ui.menu_button("Byte manipulation", |ui| {
+            if ui.button("CONCAT (2)").clicked() {
+                snarl.insert_node(pos, NodeKind::Concat { count: 2 });
+                ui.close();
+            }
+            if ui.button("CONCAT (4)").clicked() {
+                snarl.insert_node(pos, NodeKind::Concat { count: 4 });
+                ui.close();
+            }
+            if ui.button("SLICE").clicked() {
+                snarl.insert_node(pos, NodeKind::Slice);
+                ui.close();
+            }
+            if ui.button("PACK").clicked() {
+                snarl.insert_node(pos, NodeKind::Pack);
+                ui.close();
+            }
+            if ui.button("UNPACK").clicked() {
+                snarl.insert_node(pos, NodeKind::Unpack);
+                ui.close();
+            }
+        });
 
-		if !self.fn_sigs.is_empty() {
-			ui.separator();
-			ui.menu_button("Call function", |ui| {
-				for (i, (name, in_types, out_types)) in self.fn_sigs.iter().enumerate() {
-					if ui.button(name).clicked() {
-						snarl.insert_node(
-							pos,
-							NodeKind::FunctionCall {
-								def_index: i,
-								name: name.clone(),
-								in_types: in_types.clone(),
-								out_types: out_types.clone(),
-							},
-						);
-						ui.close();
-					}
-				}
-			});
-		}
+        if !self.fn_sigs.is_empty() {
+            ui.separator();
+            ui.menu_button("Call function", |ui| {
+                for (i, (name, in_types, out_types)) in self.fn_sigs.iter().enumerate() {
+                    if ui.button(name).clicked() {
+                        snarl.insert_node(
+                            pos,
+                            NodeKind::FunctionCall {
+                                def_index: i,
+                                name: name.clone(),
+                                in_types: in_types.clone(),
+                                out_types: out_types.clone(),
+                            },
+                        );
+                        ui.close();
+                    }
+                }
+            });
+        }
 
-		if !self.in_subgraph {
-			ui.separator();
-			if ui.button("SINK").clicked() {
-				snarl.insert_node(pos, NodeKind::Sink);
-				ui.close();
-			}
-		}
-	}
+        if !self.in_subgraph {
+            ui.separator();
+            if ui.button("SINK").clicked() {
+                snarl.insert_node(pos, NodeKind::Sink);
+                ui.close();
+            }
+        }
+    }
 
-	fn has_dropped_wire_menu(&mut self, _src_pins: AnyPins, _snarl: &mut Snarl<NodeKind>) -> bool {
-		true
-	}
+    fn has_dropped_wire_menu(&mut self, _src_pins: AnyPins, _snarl: &mut Snarl<NodeKind>) -> bool {
+        true
+    }
 
-	fn show_dropped_wire_menu(
-		&mut self,
-		pos: egui::Pos2,
-		ui: &mut egui::Ui,
-		src_pins: AnyPins,
-		snarl: &mut Snarl<NodeKind>,
-	) {
-		let wt = match src_pins {
-			AnyPins::Out(ids) => ids
-				.first()
-				.map(|id| snarl[id.node].output_wire_type(id.output)),
-			AnyPins::In(ids) => ids
-				.first()
-				.map(|id| snarl[id.node].input_wire_type(id.input)),
-		};
+    fn show_dropped_wire_menu(
+        &mut self,
+        pos: egui::Pos2,
+        ui: &mut egui::Ui,
+        src_pins: AnyPins,
+        snarl: &mut Snarl<NodeKind>,
+    ) {
+        let wt = match src_pins {
+            AnyPins::Out(ids) => ids
+                .first()
+                .map(|id| snarl[id.node].output_wire_type(id.output)),
+            AnyPins::In(ids) => ids
+                .first()
+                .map(|id| snarl[id.node].input_wire_type(id.input)),
+        };
 
-		ui.label(match wt {
-			Some(WireType::Bit) => "Bit wire — add node:",
-			Some(WireType::Word) => "Word wire — add node:",
-			_ => "Byte wire — add node:",
-		});
-		ui.separator();
+        ui.label(match wt {
+            Some(WireType::Bit) => "Bit wire — add node:",
+            Some(WireType::Word) => "Word wire — add node:",
+            _ => "Byte wire — add node:",
+        });
+        ui.separator();
 
-		match wt {
+        match wt {
             Some(WireType::Bit) => {
                 if ui.button("AND").clicked()  { snarl.insert_node(pos, NodeKind::And);  ui.close(); }
                 if ui.button("OR").clicked()   { snarl.insert_node(pos, NodeKind::Or);   ui.close(); }
@@ -625,48 +625,48 @@ impl SnarlViewer<NodeKind> for NodeGraphViewer<'_> {
                 if !self.in_subgraph && ui.button("SINK").clicked() { snarl.insert_node(pos, NodeKind::Sink); ui.close(); }
             }
         }
-	}
+    }
 
-	fn has_node_menu(&mut self, _node: &NodeKind) -> bool {
-		true
-	}
+    fn has_node_menu(&mut self, _node: &NodeKind) -> bool {
+        true
+    }
 
-	fn show_node_menu(
-		&mut self,
-		node: egui_snarl::NodeId,
-		_inputs: &[InPin],
-		_outputs: &[OutPin],
-		ui: &mut egui::Ui,
-		snarl: &mut Snarl<NodeKind>,
-	) {
-		// Constant-specific controls: add/remove output ports.
-		{
-			if let NodeKind::Constant(values) = &mut snarl[node] {
-				ui.menu_button("Add output", |ui| {
-					if ui.button("Bit").clicked() {
-						values.push(NodeValue::Bit(false));
-						ui.close();
-					}
-					if ui.button("Byte").clicked() {
-						values.push(NodeValue::Byte(0));
-						ui.close();
-					}
-					if ui.button("Word").clicked() {
-						values.push(NodeValue::Word(0));
-						ui.close();
-					}
-				});
-				if !values.is_empty() && ui.button("Remove last output").clicked() {
-					values.pop();
-					ui.close();
-				}
-				ui.separator();
-			}
-		}
+    fn show_node_menu(
+        &mut self,
+        node: egui_snarl::NodeId,
+        _inputs: &[InPin],
+        _outputs: &[OutPin],
+        ui: &mut egui::Ui,
+        snarl: &mut Snarl<NodeKind>,
+    ) {
+        // Constant-specific controls: add/remove output ports.
+        {
+            if let NodeKind::Constant(values) = &mut snarl[node] {
+                ui.menu_button("Add output", |ui| {
+                    if ui.button("Bit").clicked() {
+                        values.push(NodeValue::Bit(false));
+                        ui.close();
+                    }
+                    if ui.button("Byte").clicked() {
+                        values.push(NodeValue::Byte(0));
+                        ui.close();
+                    }
+                    if ui.button("Word").clicked() {
+                        values.push(NodeValue::Word(0));
+                        ui.close();
+                    }
+                });
+                if !values.is_empty() && ui.button("Remove last output").clicked() {
+                    values.pop();
+                    ui.close();
+                }
+                ui.separator();
+            }
+        }
 
-		if ui.button("Delete node").clicked() {
-			snarl.remove_node(node);
-			ui.close();
-		}
-	}
+        if ui.button("Delete node").clicked() {
+            snarl.remove_node(node);
+            ui.close();
+        }
+    }
 }
