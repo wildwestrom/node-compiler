@@ -2132,6 +2132,7 @@ dependencies = [
 name = "node_compiler"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "eframe",
  "egui",
  "egui-snarl",

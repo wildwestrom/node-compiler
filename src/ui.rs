@@ -119,7 +119,7 @@ impl App {
         postcard::to_allocvec(&current).unwrap_or_default() != self.last_saved_state
     }
 
-    fn do_save(&mut self, path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+    fn do_save(&mut self, path: &std::path::Path) -> anyhow::Result<()> {
         let state = persistence::SavedState {
             snarl: self.snarl.clone(),
             functions: self.functions.clone(),
@@ -127,6 +127,23 @@ impl App {
         persistence::save_state(&state, path)?;
         self.last_saved_state = postcard::to_allocvec(&state).unwrap_or_default();
         Ok(())
+    }
+
+    /// Save to the current path, or open a Save As dialog if none is set.
+    fn handle_save(&mut self) -> anyhow::Result<()> {
+        if let Some(path) = self.current_path.clone() {
+            self.do_save(&path)
+        } else if let Some(path) = rfd::FileDialog::new()
+            .add_filter("Node graph", &["ncg"])
+            .set_file_name("Untitled.ncg")
+            .save_file()
+        {
+            self.do_save(&path)?;
+            self.current_path = Some(path);
+            Ok(())
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -138,8 +155,30 @@ impl eframe::App for App {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Error dialog.
+        if let Some(msg) = self.error.clone() {
+            egui::Window::new("Error")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                .show(ctx, |ui| {
+                    ui.label(&msg);
+                    ui.add_space(8.0);
+                    if ui.button("OK").clicked() {
+                        self.error = None;
+                    }
+                });
+        }
+
         // Intercept close requests: if there are unsaved changes, cancel the close and show the
         // save/discard dialog instead.
+        // Ctrl-S: save (or Save As if no path set).
+        if ctx.input(|i| i.key_pressed(egui::Key::S) && i.modifiers.command) {
+            if let Err(e) = self.handle_save() {
+                self.error = Some(format!("Failed to save: {e}"));
+            }
+        }
+
         if ctx.input(|i| i.viewport().close_requested()) && self.is_dirty() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.pending_close = true;
@@ -183,8 +222,7 @@ impl eframe::App for App {
                         .clicked()
                     {
                         ui.close();
-                        let path = self.current_path.clone().unwrap();
-                        if let Err(e) = self.do_save(&path) {
+                        if let Err(e) = self.handle_save() {
                             self.error = Some(format!("Failed to save: {e}"));
                         }
                     }
@@ -237,21 +275,6 @@ impl eframe::App for App {
             });
         }
 
-        // Error dialog.
-        if let Some(msg) = self.error.clone() {
-            egui::Window::new("Error")
-                .collapsible(false)
-                .resizable(false)
-                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-                .show(ctx, |ui| {
-                    ui.label(&msg);
-                    ui.add_space(8.0);
-                    if ui.button("OK").clicked() {
-                        self.error = None;
-                    }
-                });
-        }
-
         // Save/discard dialog shown when the user closes with unsaved changes.
         if self.pending_close {
             egui::Window::new("Unsaved changes")
@@ -263,31 +286,12 @@ impl eframe::App for App {
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
                         if ui.button("Save").clicked() {
-                            if let Some(path) = self.current_path.clone() {
-                                match self.do_save(&path) {
-                                    Ok(()) => {
-                                        self.pending_close = false;
-                                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                                    }
-                                    Err(e) => {
-                                        self.error = Some(format!("Failed to save: {e}"));
-                                    }
+                            match self.handle_save() {
+                                Ok(()) => {
+                                    self.pending_close = false;
+                                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                                 }
-                            } else if let Some(path) = rfd::FileDialog::new()
-                                .add_filter("Node graph", &["ncg"])
-                                .set_file_name("Untitled.ncg")
-                                .save_file()
-                            {
-                                match self.do_save(&path) {
-                                    Ok(()) => {
-                                        self.current_path = Some(path);
-                                        self.pending_close = false;
-                                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                                    }
-                                    Err(e) => {
-                                        self.error = Some(format!("Failed to save: {e}"));
-                                    }
-                                }
+                                Err(e) => self.error = Some(format!("Failed to save: {e}")),
                             }
                         }
                         if ui.button("Discard").clicked() {

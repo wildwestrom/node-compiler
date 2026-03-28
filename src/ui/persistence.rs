@@ -9,16 +9,13 @@ pub(crate) struct SavedState {
     pub(crate) functions: Vec<FunctionDef>,
 }
 
-pub(crate) fn save_state(
-    state: &SavedState,
-    path: &std::path::Path,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub(crate) fn save_state(state: &SavedState, path: &std::path::Path) -> anyhow::Result<()> {
     let bytes = postcard::to_allocvec(state)?;
     std::fs::write(path, bytes)?;
     Ok(())
 }
 
-pub(crate) fn load_state(path: &std::path::Path) -> Result<SavedState, Box<dyn std::error::Error>> {
+pub(crate) fn load_state(path: &std::path::Path) -> anyhow::Result<SavedState> {
     let bytes = std::fs::read(path)?;
     Ok(postcard::from_bytes(&bytes)?)
 }
