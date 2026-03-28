@@ -1,3 +1,6 @@
 /target
 .direnv
 .envrc
+
+# My custom file format for node graphs
+**/*.ncg
