@@ -3,7 +3,7 @@ mod persistence;
 pub(crate) mod snarl_graph;
 
 use crate::graph::{FunctionDef, NodeKind, WireType, eval_graph};
-use crate::ui::snarl_graph::{graph_from_snarl, snarl_from_graph};
+use crate::ui::snarl_graph::{auto_arrange, graph_from_snarl, snarl_from_graph};
 
 use std::path::PathBuf;
 
@@ -237,6 +237,13 @@ impl eframe::App for App {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                 });
+                if ui.button("Arrange").clicked() {
+                    match &mut self.editing {
+                        None => auto_arrange(&mut self.snarl),
+                        Some((_, editing_snarl)) => auto_arrange(editing_snarl),
+                    }
+                }
+
                 if let Some(pathstr) = self
                     .current_path
                     .as_ref()

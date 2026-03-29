@@ -156,6 +156,19 @@ pub fn snarl_from_graph(g: &GraphData) -> Snarl<NodeKind> {
     snarl
 }
 
+/// Re-apply the DAG-layered layout to an existing `Snarl` in-place.
+pub fn auto_arrange(snarl: &mut Snarl<NodeKind>) {
+    let g = graph_from_snarl(snarl);
+    let positions = layout_positions(&g);
+    for (old_id, _) in &g.nodes {
+        if let Some(pos) = positions.get(old_id) {
+            if let Some(info) = snarl.get_node_info_mut(SnarlNodeId(*old_id)) {
+                info.pos = egui::pos2(pos[0], pos[1]);
+            }
+        }
+    }
+}
+
 /// Convert `Snarl` → `GraphData`, preserving topology but discarding positions.
 pub fn graph_from_snarl(snarl: &Snarl<NodeKind>) -> GraphData {
     let nodes = snarl.node_ids().map(|(id, n)| (id.0, n.clone())).collect();
