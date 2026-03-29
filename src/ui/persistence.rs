@@ -1,11 +1,9 @@
-use crate::ui::logic::{FunctionDef, NodeKind};
-use egui_snarl::Snarl;
-
+use crate::graph::{FunctionDef, GraphData};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct SavedState {
-    pub(crate) snarl: Snarl<NodeKind>,
+    pub(crate) root_graph: GraphData,
     pub(crate) functions: Vec<FunctionDef>,
 }
 

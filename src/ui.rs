@@ -1,8 +1,9 @@
-mod logic;
-use crate::ui::logic::{FunctionDef, NodeKind, WireType, eval_graph};
-
 mod node_viewer;
 mod persistence;
+pub(crate) mod snarl_graph;
+
+use crate::graph::{FunctionDef, NodeKind, WireType, eval_graph};
+use crate::ui::snarl_graph::{graph_from_snarl, snarl_from_graph};
 
 use std::path::PathBuf;
 
@@ -20,8 +21,8 @@ pub struct App {
     snarl: Snarl<NodeKind>,
     style: SnarlStyle,
     functions: Vec<FunctionDef>,
-    // Some(idx) = currently editing functions[idx].graph
-    editing: Option<usize>,
+    /// `Some((idx, snarl))` = currently editing `functions[idx]` with this live snarl.
+    editing: Option<(usize, Snarl<NodeKind>)>,
     /// Path to the `.ncg` file currently open.
     current_path: Option<PathBuf>,
     working_dir: PathBuf,
@@ -40,25 +41,17 @@ impl App {
 
         let lit = snarl.insert_node(
             egui::pos2(-200.0, 0.0),
-            NodeKind::Source {
-                filename: "".into(),
-            },
+            NodeKind::Source { filename: "".into() },
         );
         let sink = snarl.insert_node(egui::pos2(100.0, 0.0), NodeKind::Sink);
         snarl.connect(
-            OutPinId {
-                node: lit,
-                output: 0,
-            },
-            InPinId {
-                node: sink,
-                input: 0,
-            },
+            OutPinId { node: lit, output: 0 },
+            InPinId { node: sink, input: 0 },
         );
 
         let functions: Vec<FunctionDef> = Vec::new();
         let default_state = persistence::SavedState {
-            snarl: snarl.clone(),
+            root_graph: graph_from_snarl(&snarl),
             functions: functions.clone(),
         };
         let last_saved_state = postcard::to_allocvec(&default_state).unwrap_or_default();
@@ -68,7 +61,7 @@ impl App {
             style: SnarlStyle {
                 bg_pattern: Some(BackgroundPattern::Grid(egui_snarl::ui::Grid {
                     spacing: (50.0, 50.0).into(),
-                    angle: 0.0, //_f32.to_radians(),
+                    angle: 0.0,
                 })),
                 pin_placement: Some(egui_snarl::ui::PinPlacement::Edge),
                 ..Default::default()
@@ -93,7 +86,7 @@ impl App {
                         Ok(state) => {
                             app.last_saved_state =
                                 postcard::to_allocvec(&state).unwrap_or_default();
-                            app.snarl = state.snarl;
+                            app.snarl = snarl_from_graph(&state.root_graph);
                             app.functions = state.functions;
                             app.current_path = Some(path);
                         }
@@ -114,7 +107,7 @@ impl App {
 
     fn is_dirty(&self) -> bool {
         let current = persistence::SavedState {
-            snarl: self.snarl.clone(),
+            root_graph: graph_from_snarl(&self.snarl),
             functions: self.functions.clone(),
         };
         postcard::to_allocvec(&current).unwrap_or_default() != self.last_saved_state
@@ -122,7 +115,7 @@ impl App {
 
     fn do_save(&mut self, path: &std::path::Path) -> anyhow::Result<()> {
         let state = persistence::SavedState {
-            snarl: self.snarl.clone(),
+            root_graph: graph_from_snarl(&self.snarl),
             functions: self.functions.clone(),
         };
         persistence::save_state(&state, path)?;
@@ -171,8 +164,6 @@ impl eframe::App for App {
                 });
         }
 
-        // Intercept close requests: if there are unsaved changes, cancel the close and show the
-        // save/discard dialog instead.
         // Ctrl-S: save (or Save As if no path set).
         if ctx.input(|i| i.key_pressed(egui::Key::S) && i.modifiers.command) {
             if let Err(e) = self.handle_save() {
@@ -180,12 +171,13 @@ impl eframe::App for App {
             }
         }
 
+        // Intercept close requests: if there are unsaved changes, show save/discard dialog.
         if ctx.input(|i| i.viewport().close_requested()) && self.is_dirty() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.pending_close = true;
         }
+
         // Snapshot function signatures to pass to the viewer without borrow conflicts.
-        // Types are derived live from each subgraph's Source/Sink nodes.
         let fn_sigs: Vec<(String, Vec<WireType>, Vec<WireType>)> = self
             .functions
             .iter()
@@ -209,7 +201,7 @@ impl eframe::App for App {
                                 Ok(state) => {
                                     self.last_saved_state =
                                         postcard::to_allocvec(&state).unwrap_or_default();
-                                    self.snarl = state.snarl;
+                                    self.snarl = snarl_from_graph(&state.root_graph);
                                     self.functions = state.functions;
                                     self.editing = None;
                                     self.current_path = Some(path);
@@ -264,16 +256,26 @@ impl eframe::App for App {
         });
 
         // Breadcrumb bar when editing a function subgraph.
-        if let Some(idx) = self.editing {
+        // Extract idx without holding a borrow on self.editing across the panel.
+        let editing_idx = self.editing.as_ref().map(|(i, _)| *i);
+        let mut close_editing = false;
+
+        if let Some(idx) = editing_idx {
             egui::TopBottomPanel::top("breadcrumb").show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     if ui.button("< Root").clicked() {
-                        self.editing = None;
+                        close_editing = true;
                     }
                     ui.label("›");
                     ui.text_edit_singleline(&mut self.functions[idx].name);
                 });
             });
+        }
+
+        if close_editing {
+            if let Some((fi, editing_snarl)) = self.editing.take() {
+                self.functions[fi].graph = graph_from_snarl(&editing_snarl);
+            }
         }
 
         // Save/discard dialog shown when the user closes with unsaved changes.
@@ -297,10 +299,8 @@ impl eframe::App for App {
                         }
                         if ui.button("Discard").clicked() {
                             self.pending_close = false;
-                            // Sync last_saved_state so the close-request intercept
-                            // doesn't fire again on the next frame.
                             let current = persistence::SavedState {
-                                snarl: self.snarl.clone(),
+                                root_graph: graph_from_snarl(&self.snarl),
                                 functions: self.functions.clone(),
                             };
                             self.last_saved_state =
@@ -319,7 +319,9 @@ impl eframe::App for App {
             ui.heading("Functions");
             if ui.button("+ New").clicked() {
                 self.functions.push(FunctionDef::new("Unnamed"));
-                self.editing = Some(self.functions.len() - 1);
+                let i = self.functions.len() - 1;
+                let editing_snarl = snarl_from_graph(&self.functions[i].graph);
+                self.editing = Some((i, editing_snarl));
             }
             ui.separator();
 
@@ -344,7 +346,13 @@ impl eframe::App for App {
             }
 
             if let Some(i) = to_edit {
-                self.editing = Some(i);
+                // Sync current editing session back before switching.
+                if let Some((fi, ref current_snarl)) = self.editing {
+                    let graph = graph_from_snarl(current_snarl);
+                    self.functions[fi].graph = graph;
+                }
+                let editing_snarl = snarl_from_graph(&self.functions[i].graph);
+                self.editing = Some((i, editing_snarl));
             }
             if let Some(i) = to_add {
                 let (in_types, out_types) = self.functions[i].call_types();
@@ -359,42 +367,45 @@ impl eframe::App for App {
             if let Some(i) = to_delete {
                 self.functions.remove(i);
                 // TODO: fix stale def_index in FunctionCall nodes after deletion
-                if self.editing == Some(i) {
+                if matches!(&self.editing, Some((idx, _)) if *idx == i) {
                     self.editing = None;
                 }
             }
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| match self.editing {
-            None => {
-                let cache = eval_graph(&self.snarl, &self.functions);
-                SnarlWidget::new()
-                    .id(Id::new("root_snarl"))
-                    .style(self.style)
-                    .show(
-                        &mut self.snarl,
-                        &mut node_viewer::NodeGraphViewer {
-                            cache: &cache,
-                            fn_sigs: &fn_sigs,
-                            in_subgraph: false,
-                        },
-                        ui,
-                    );
-            }
-            Some(idx) => {
-                let cache = eval_graph(&self.functions[idx].graph, &self.functions);
-                SnarlWidget::new()
-                    .id(Id::new(("fn_snarl", idx)))
-                    .style(self.style)
-                    .show(
-                        &mut self.functions[idx].graph,
-                        &mut node_viewer::NodeGraphViewer {
-                            cache: &cache,
-                            fn_sigs: &fn_sigs,
-                            in_subgraph: true,
-                        },
-                        ui,
-                    );
+        egui::CentralPanel::default().show(ctx, |ui| {
+            match &mut self.editing {
+                None => {
+                    let cache = eval_graph(&self.snarl, &self.functions);
+                    SnarlWidget::new()
+                        .id(Id::new("root_snarl"))
+                        .style(self.style)
+                        .show(
+                            &mut self.snarl,
+                            &mut node_viewer::NodeGraphViewer {
+                                cache: &cache,
+                                fn_sigs: &fn_sigs,
+                                in_subgraph: false,
+                            },
+                            ui,
+                        );
+                }
+                Some((idx, editing_snarl)) => {
+                    let idx = *idx;
+                    let cache = eval_graph(&*editing_snarl, &self.functions);
+                    SnarlWidget::new()
+                        .id(Id::new(("fn_snarl", idx)))
+                        .style(self.style)
+                        .show(
+                            editing_snarl,
+                            &mut node_viewer::NodeGraphViewer {
+                                cache: &cache,
+                                fn_sigs: &fn_sigs,
+                                in_subgraph: true,
+                            },
+                            ui,
+                        );
+                }
             }
         });
     }
