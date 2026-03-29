@@ -249,12 +249,18 @@ impl eframe::App for App {
                     .as_ref()
                     .and_then(|p| p.strip_prefix(&self.working_dir).unwrap_or(p).to_str())
                 {
+                    let dirty = self.is_dirty();
+                    let label = if dirty {
+                        format!("• {pathstr}")
+                    } else {
+                        pathstr.to_owned()
+                    };
                     let center_x = ui.clip_rect().center().x;
                     let center_y = ui.cursor().min.y + ui.spacing().interact_size.y / 2.0;
                     ui.painter().text(
                         egui::pos2(center_x, center_y),
                         egui::Align2::CENTER_CENTER,
-                        pathstr,
+                        label,
                         egui::FontId::default(),
                         ui.visuals().text_color(),
                     );
