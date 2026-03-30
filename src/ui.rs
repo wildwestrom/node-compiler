@@ -41,6 +41,13 @@ enum PendingAction {
 
 const STORAGE_KEY_LAST_PATH: &str = "last_path";
 
+fn serialize_state(state: &persistence::SavedState) -> Vec<u8> {
+    #[cfg(not(feature = "human-readable"))]
+    return postcard::to_allocvec(state).unwrap_or_default();
+    #[cfg(feature = "human-readable")]
+    return ron::to_string(state).unwrap_or_default().into_bytes();
+}
+
 impl App {
     pub fn new(cx: &CreationContext) -> Self {
         let mut snarl = Snarl::new();
@@ -68,7 +75,7 @@ impl App {
             root_graph: graph_from_snarl(&snarl),
             functions: functions.clone(),
         };
-        let last_saved_state = postcard::to_allocvec(&default_state).unwrap_or_default();
+        let last_saved_state = serialize_state(&default_state);
 
         let mut app = Self {
             snarl,
@@ -98,8 +105,7 @@ impl App {
                 if path.exists() {
                     match persistence::load_state(&path) {
                         Ok(state) => {
-                            app.last_saved_state =
-                                postcard::to_allocvec(&state).unwrap_or_default();
+                            app.last_saved_state = serialize_state(&state);
                             app.snarl = snarl_from_graph(&state.root_graph);
                             app.functions = state.functions;
                             app.current_path = Some(path);
@@ -124,7 +130,7 @@ impl App {
             root_graph: graph_from_snarl(&self.snarl),
             functions: self.functions.clone(),
         };
-        postcard::to_allocvec(&current).unwrap_or_default() != self.last_saved_state
+        serialize_state(&current) != self.last_saved_state
     }
 
     fn do_save(&mut self, path: &std::path::Path) -> anyhow::Result<()> {
@@ -133,7 +139,7 @@ impl App {
             functions: self.functions.clone(),
         };
         persistence::save_state(&state, path)?;
-        self.last_saved_state = postcard::to_allocvec(&state).unwrap_or_default();
+        self.last_saved_state = serialize_state(&state);
         Ok(())
     }
 
@@ -147,7 +153,7 @@ impl App {
             root_graph: graph_from_snarl(&self.snarl),
             functions: self.functions.clone(),
         };
-        self.last_saved_state = postcard::to_allocvec(&blank).unwrap_or_default();
+        self.last_saved_state = serialize_state(&blank);
     }
 
     /// Save to the current path, or open a Save As dialog if none is set.
@@ -169,14 +175,14 @@ impl App {
 
     fn file_submenu(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
         ui.menu_button("File", |ui| {
-        	  if ui.button("New").clicked() {
-        	  	ui.close();
-        	  	if self.is_dirty() {
-	        	  	self.pending_action = Some(PendingAction::New);
-        	  	} else {
-        	  		self.do_new();
-        	  	}
-        	  }
+            if ui.button("New").clicked() {
+                ui.close();
+                if self.is_dirty() {
+                    self.pending_action = Some(PendingAction::New);
+                } else {
+                    self.do_new();
+                }
+            }
             if ui.button("Open…").clicked() {
                 ui.close();
                 if let Some(path) = rfd::FileDialog::new()
@@ -186,8 +192,7 @@ impl App {
                 {
                     match persistence::load_state(&path) {
                         Ok(state) => {
-                            self.last_saved_state =
-                                postcard::to_allocvec(&state).unwrap_or_default();
+                            self.last_saved_state = serialize_state(&state);
                             self.snarl = snarl_from_graph(&state.root_graph);
                             self.functions = state.functions;
                             self.editing = None;
@@ -362,8 +367,7 @@ impl eframe::App for App {
                                         root_graph: graph_from_snarl(&self.snarl),
                                         functions: self.functions.clone(),
                                     };
-                                    self.last_saved_state =
-                                        postcard::to_allocvec(&current).unwrap_or_default();
+                                    self.last_saved_state = serialize_state(&current);
                                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                                 }
                                 PendingAction::New => self.do_new(),
