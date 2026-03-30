@@ -1,17 +1,35 @@
 use egui_snarl::{
-    InPin, OutPin, OutPinId as SnarlOut, Snarl,
+    InPin, NodeId, OutPin, OutPinId as SnarlOut, Snarl,
     ui::{AnyPins, PinInfo, SnarlPin, SnarlViewer},
 };
 
-use crate::graph::{EvalCache, NodeKind, NodeValue, OutPinId, WireType};
+use crate::graph::{EvalCache, FunctionDef, NodeKind, NodeValue, OutPinId, WireType};
+use crate::ui::persistence::NamesData;
 
 pub(crate) struct NodeGraphViewer<'a> {
     pub(crate) cache: &'a EvalCache,
-    pub(crate) fn_sigs: &'a [(String, Vec<WireType>, Vec<WireType>)],
-    pub(crate) in_subgraph: bool,
+    pub(crate) functions: &'a [FunctionDef],
+    pub(crate) names: &'a mut NamesData,
+    /// `Some(hash)` when editing a function subgraph; `None` for the root graph.
+    pub(crate) fn_hash: Option<String>,
 }
 
 impl NodeGraphViewer<'_> {
+    fn fn_name(&self, def_index: usize) -> String {
+        self.functions
+            .get(def_index)
+            .map(|f| {
+                let hash = f.graph_hash();
+                self.names
+                    .functions
+                    .get(&hash)
+                    .filter(|n| !n.is_empty())
+                    .cloned()
+                    .unwrap_or_else(|| format!("#{}", &hash[..8]))
+            })
+            .unwrap_or_else(|| "FUNCTION".into())
+    }
+
     /// Render the cached value for an output pin as dim monospace text.
     pub(crate) fn show_value(&self, pin: SnarlOut, ui: &mut egui::Ui) {
         let our_pin = OutPinId::from(pin);
@@ -40,12 +58,51 @@ impl SnarlViewer<NodeKind> for NodeGraphViewer<'_> {
 
     fn title(&mut self, node: &NodeKind) -> String {
         match node {
-            NodeKind::FunctionCall { def_index, .. } => self
-                .fn_sigs
-                .get(*def_index)
-                .map(|(n, _, _)| n.clone())
-                .unwrap_or_else(|| "FUNCTION".into()),
+            NodeKind::FunctionCall { def_index, .. } => self.fn_name(*def_index),
             _ => node.node_title(),
+        }
+    }
+
+    fn show_header(
+        &mut self,
+        node: NodeId,
+        _inputs: &[InPin],
+        _outputs: &[OutPin],
+        ui: &mut egui::Ui,
+        snarl: &mut Snarl<NodeKind>,
+    ) {
+        enum Variant {
+            FnCall(usize),
+            Constant,
+            Other(String),
+        }
+        let variant = match &snarl[node] {
+            NodeKind::FunctionCall { def_index, .. } => Variant::FnCall(*def_index),
+            NodeKind::Constant(_) => Variant::Constant,
+            n => Variant::Other(n.node_title()),
+        };
+        match variant {
+            Variant::FnCall(def_index) => {
+                if let Some(f) = self.functions.get(def_index) {
+                    let hash = f.graph_hash();
+                    let hint = format!("#{}", &hash[..8]);
+                    let name = self.names.functions.entry(hash).or_default();
+                    egui::TextEdit::singleline(name).hint_text(hint).show(ui);
+                }
+            }
+            Variant::Constant => {
+                let node_id = node.0;
+                let fn_hash = self.fn_hash.clone();
+                let node_names = match fn_hash {
+                    None => &mut self.names.root_nodes,
+                    Some(hash) => self.names.subgraph_nodes.entry(hash).or_default(),
+                };
+                let name = node_names.entry(node_id).or_default();
+                egui::TextEdit::singleline(name).hint_text("CONSTANT").show(ui);
+            }
+            Variant::Other(title) => {
+                ui.label(title);
+            }
         }
     }
 
@@ -149,7 +206,7 @@ impl SnarlViewer<NodeKind> for NodeGraphViewer<'_> {
     // ── Node footer — used for the Constant add-output buttons ───────────
 
     fn has_footer(&mut self, node: &NodeKind) -> bool {
-        matches!(node, NodeKind::Constant(_))
+        matches!(node, NodeKind::Constant(_) | NodeKind::Concat { .. })
     }
 
     fn show_footer(
@@ -171,6 +228,17 @@ impl SnarlViewer<NodeKind> for NodeGraphViewer<'_> {
                 if ui.small_button("+ Word").clicked() {
                     values.push(NodeValue::Word(0));
                 }
+            });
+        }
+        if let NodeKind::Concat { count } = &mut snarl[node] {
+            ui.horizontal(|ui| {
+                if ui.small_button("+").clicked() {
+                    *count += 1;
+                }
+                if *count > 1 && ui.small_button("-").clicked() {
+                    *count -= 1;
+                }
+                ui.label(format!("{} inputs", count));
             });
         }
     }
@@ -267,12 +335,8 @@ impl SnarlViewer<NodeKind> for NodeGraphViewer<'_> {
         });
 
         ui.menu_button("Byte manipulation", |ui| {
-            if ui.button("CONCAT (2)").clicked() {
+            if ui.button("CONCAT").clicked() {
                 snarl.insert_node(pos, NodeKind::Concat { count: 2 });
-                ui.close();
-            }
-            if ui.button("CONCAT (4)").clicked() {
-                snarl.insert_node(pos, NodeKind::Concat { count: 4 });
                 ui.close();
             }
             if ui.button("SLICE").clicked() {
@@ -289,17 +353,26 @@ impl SnarlViewer<NodeKind> for NodeGraphViewer<'_> {
             }
         });
 
-        if !self.fn_sigs.is_empty() {
+        if !self.functions.is_empty() {
             ui.separator();
             ui.menu_button("Call function", |ui| {
-                for (i, (name, in_types, out_types)) in self.fn_sigs.iter().enumerate() {
-                    if ui.button(name).clicked() {
+                for (i, f) in self.functions.iter().enumerate() {
+                    let hash = f.graph_hash();
+                    let name = self
+                        .names
+                        .functions
+                        .get(&hash)
+                        .filter(|n| !n.is_empty())
+                        .cloned()
+                        .unwrap_or_else(|| format!("#{}", &hash[..8]));
+                    let (in_types, out_types) = f.call_types();
+                    if ui.button(&name).clicked() {
                         snarl.insert_node(
                             pos,
                             NodeKind::FunctionCall {
                                 def_index: i,
-                                in_types: in_types.clone(),
-                                out_types: out_types.clone(),
+                                in_types,
+                                out_types,
                             },
                         );
                         ui.close();
@@ -308,7 +381,7 @@ impl SnarlViewer<NodeKind> for NodeGraphViewer<'_> {
             });
         }
 
-        if !self.in_subgraph {
+        if self.fn_hash.is_none() {
             ui.separator();
             if ui.button("SINK").clicked() {
                 snarl.insert_node(pos, NodeKind::Sink);
@@ -361,7 +434,7 @@ impl SnarlViewer<NodeKind> for NodeGraphViewer<'_> {
                 if ui.button("AND").clicked()        { snarl.insert_node(pos, NodeKind::And);  ui.close(); }
                 if ui.button("CONCAT (2)").clicked() { snarl.insert_node(pos, NodeKind::Concat { count: 2 }); ui.close(); }
                 if ui.button("UNPACK").clicked()     { snarl.insert_node(pos, NodeKind::Unpack); ui.close(); }
-                if !self.in_subgraph && ui.button("SINK").clicked() { snarl.insert_node(pos, NodeKind::Sink); ui.close(); }
+                if self.fn_hash.is_none() && ui.button("SINK").clicked() { snarl.insert_node(pos, NodeKind::Sink); ui.close(); }
             }
         }
     }
@@ -395,6 +468,18 @@ impl SnarlViewer<NodeKind> for NodeGraphViewer<'_> {
             });
             if !values.is_empty() && ui.button("Remove last output").clicked() {
                 values.pop();
+                ui.close();
+            }
+            ui.separator();
+        }
+
+        if let NodeKind::Concat { count } = &mut snarl[node] {
+            if ui.button("Add input").clicked() {
+                *count += 1;
+                ui.close();
+            }
+            if *count > 1 && ui.button("Remove last input").clicked() {
+                *count -= 1;
                 ui.close();
             }
             ui.separator();

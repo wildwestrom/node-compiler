@@ -2,7 +2,7 @@ mod node_viewer;
 mod persistence;
 pub(crate) mod snarl_graph;
 
-use crate::graph::{FunctionDef, NodeKind, WireType, eval_graph};
+use crate::graph::{FunctionDef, NodeKind, eval_graph};
 use crate::ui::snarl_graph::{auto_arrange, graph_from_snarl, snarl_from_graph};
 
 use std::path::PathBuf;
@@ -296,24 +296,6 @@ impl eframe::App for App {
             self.pending_action = Some(PendingAction::Close);
         }
 
-        // Snapshot function signatures to pass to the viewer without borrow conflicts.
-        let fn_sigs: Vec<(String, Vec<WireType>, Vec<WireType>)> = self
-            .functions
-            .iter()
-            .map(|f| {
-                let (in_types, out_types) = f.call_types();
-                let hash = f.graph_hash();
-                let name = self
-                    .names
-                    .functions
-                    .get(&hash)
-                    .filter(|n| !n.is_empty())
-                    .cloned()
-                    .unwrap_or_else(|| format!("#{}", &hash[..8]));
-                (name, in_types, out_types)
-            })
-            .collect();
-
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 self.file_submenu(ctx, ui);
@@ -602,14 +584,16 @@ impl eframe::App for App {
                         &mut self.snarl,
                         &mut node_viewer::NodeGraphViewer {
                             cache: &cache,
-                            fn_sigs: &fn_sigs,
-                            in_subgraph: false,
+                            functions: &self.functions,
+                            names: &mut self.names,
+                            fn_hash: None,
                         },
                         ui,
                     );
             }
             Some((idx, editing_snarl)) => {
                 let idx = *idx;
+                let fn_hash = self.functions.get(idx).map(|f| f.graph_hash());
                 let cache = eval_graph(&*editing_snarl, &self.functions);
                 SnarlWidget::new()
                     .id(Id::new(("fn_snarl", idx)))
@@ -618,8 +602,9 @@ impl eframe::App for App {
                         editing_snarl,
                         &mut node_viewer::NodeGraphViewer {
                             cache: &cache,
-                            fn_sigs: &fn_sigs,
-                            in_subgraph: true,
+                            functions: &self.functions,
+                            names: &mut self.names,
+                            fn_hash,
                         },
                         ui,
                     );

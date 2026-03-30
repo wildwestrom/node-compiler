@@ -196,11 +196,15 @@ fn compute<G: Graph<NodeKind>>(
         // ── Byte manipulation ─────────────────────────────────────────────
         NodeKind::Concat { count } => {
             let count = *count as usize;
-            let mut bytes = Vec::with_capacity(count);
+            let mut result = Vec::new();
             for i in 0..count {
-                bytes.push(inp_byte!(i));
+                match get_in(n, i, graph, cache, functions)? {
+                    NodeValue::Byte(b) => result.push(b),
+                    NodeValue::Bytes(bs) => result.extend(bs),
+                    _ => return None,
+                }
             }
-            Some(NodeValue::Bytes(bytes))
+            Some(NodeValue::Bytes(result))
         }
         NodeKind::Slice => {
             let word = inp_word!(0);

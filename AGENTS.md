@@ -8,6 +8,8 @@ A node-graph editor that compiles directly to binary machine code. The node grap
 
 The binary is named `node-compiler` (Cargo package name). Currently early-stage: `src/main.rs` has the `NodeKind` and `Value` enums sketched out, with egui-snarl wired in as the node graph UI framework.
 
+This is very much a work in progress, so make no effort whatsoever to maintain backwards compatiblity.
+
 ## Commands
 
 ```bash
@@ -29,7 +31,7 @@ This project uses jujutsu so for any git commands, use whatever the `jj` equival
 ### Key dependencies
 
 - **egui** — immediate-mode GUI framework
-- **egui-snarl** — node graph widget for egui; provides `SnarlViewer` trait to implement for custom node rendering
+- **egui-snarl** — node graph widget for egui; provides `SnarlViewer` trait to implement for custom node rendering. Look up its API by reading source files under `~/.cargo/registry/src/`
 
 ### Core types (`src/main.rs`)
 
