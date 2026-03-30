@@ -384,11 +384,122 @@ impl eframe::App for App {
                 self.snarl.insert_node(egui::pos2(0.0, 0.0), node);
             }
             if let Some(i) = to_delete {
-                self.functions.remove(i);
-                // TODO: fix stale def_index in FunctionCall nodes after deletion
-                if matches!(&self.editing, Some((idx, _)) if *idx == i) {
-                    self.editing = None;
+                // Remove every FunctionCall node that references the deleted function
+                // and fix the def_index of nodes that reference later functions.
+                // Must be done before self.functions.remove(i).
+
+                // Root snarl.
+                let to_remove: Vec<_> = self
+                    .snarl
+                    .node_ids()
+                    .filter_map(|(id, n)| {
+                        if let NodeKind::FunctionCall { def_index, .. } = n {
+                            if *def_index == i {
+                                return Some(id);
+                            }
+                        }
+                        None
+                    })
+                    .collect();
+                for id in to_remove {
+                    self.snarl.remove_node(id);
                 }
+                let to_fix: Vec<_> = self
+                    .snarl
+                    .node_ids()
+                    .filter_map(|(id, n)| {
+                        if let NodeKind::FunctionCall { def_index, .. } = n {
+                            if *def_index > i {
+                                return Some(id);
+                            }
+                        }
+                        None
+                    })
+                    .collect();
+                for id in to_fix {
+                    if let NodeKind::FunctionCall { def_index, .. } = &mut self.snarl[id] {
+                        *def_index -= 1;
+                    }
+                }
+
+                // Editing snarl (if open).
+                let editing_is_deleted =
+                    matches!(&self.editing, Some((idx, _)) if *idx == i);
+                if editing_is_deleted {
+                    self.editing = None;
+                } else if let Some((idx, editing_snarl)) = &mut self.editing {
+                    let to_remove: Vec<_> = editing_snarl
+                        .node_ids()
+                        .filter_map(|(id, n)| {
+                            if let NodeKind::FunctionCall { def_index, .. } = n {
+                                if *def_index == i {
+                                    return Some(id);
+                                }
+                            }
+                            None
+                        })
+                        .collect();
+                    for id in to_remove {
+                        editing_snarl.remove_node(id);
+                    }
+                    let to_fix: Vec<_> = editing_snarl
+                        .node_ids()
+                        .filter_map(|(id, n)| {
+                            if let NodeKind::FunctionCall { def_index, .. } = n {
+                                if *def_index > i {
+                                    return Some(id);
+                                }
+                            }
+                            None
+                        })
+                        .collect();
+                    for id in to_fix {
+                        if let NodeKind::FunctionCall { def_index, .. } =
+                            &mut editing_snarl[id]
+                        {
+                            *def_index -= 1;
+                        }
+                    }
+                    if *idx > i {
+                        *idx -= 1;
+                    }
+                }
+
+                // Stored GraphData for every other function.
+                for j in 0..self.functions.len() {
+                    if j == i {
+                        continue;
+                    }
+                    let graph = &mut self.functions[j].graph;
+                    let deleted_ids: Vec<usize> = graph
+                        .nodes
+                        .iter()
+                        .filter_map(|(id, n)| {
+                            if let NodeKind::FunctionCall { def_index, .. } = n {
+                                if *def_index == i {
+                                    return Some(*id);
+                                }
+                            }
+                            None
+                        })
+                        .collect();
+                    graph.nodes.retain(|(_, n)| {
+                        !matches!(n, NodeKind::FunctionCall { def_index, .. } if *def_index == i)
+                    });
+                    graph.wires.retain(|(out, inp)| {
+                        !deleted_ids.contains(&out.node.0)
+                            && !deleted_ids.contains(&inp.node.0)
+                    });
+                    for (_, n) in &mut graph.nodes {
+                        if let NodeKind::FunctionCall { def_index, .. } = n {
+                            if *def_index > i {
+                                *def_index -= 1;
+                            }
+                        }
+                    }
+                }
+
+                self.functions.remove(i);
             }
         });
 
