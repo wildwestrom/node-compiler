@@ -8,4 +8,8 @@ Right now I'm just testing out ideas. Very much a work in progress.
 
 ## Known issues
 
-- When loading a file, the nodes all bunch up on each other
+- Sometimes the nodes are arranged from top-to-bottom differently than the order the wires connect.
+- Concat 2 cannot take a vec of bytes and append another byte to it.
+- No ability to copy and paste nodes.
+- Concat does not take an arbitrary number of wires (only 2 or 4).
+- No "New" button in the menu bar to prompt the user to save or discard and make a new project.
