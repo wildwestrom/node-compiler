@@ -40,13 +40,11 @@ impl SnarlViewer<NodeKind> for NodeGraphViewer<'_> {
 
     fn title(&mut self, node: &NodeKind) -> String {
         match node {
-            NodeKind::FunctionCall {
-                def_index, name, ..
-            } => self
+            NodeKind::FunctionCall { def_index, .. } => self
                 .fn_sigs
                 .get(*def_index)
                 .map(|(n, _, _)| n.clone())
-                .unwrap_or_else(|| name.clone()),
+                .unwrap_or_else(|| "FUNCTION".into()),
             _ => node.node_title(),
         }
     }
@@ -300,7 +298,6 @@ impl SnarlViewer<NodeKind> for NodeGraphViewer<'_> {
                             pos,
                             NodeKind::FunctionCall {
                                 def_index: i,
-                                name: name.clone(),
                                 in_types: in_types.clone(),
                                 out_types: out_types.clone(),
                             },

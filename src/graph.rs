@@ -4,11 +4,7 @@ pub mod types;
 pub use eval::{EvalCache, eval_graph};
 pub use types::{NodeKind, NodeValue, WireType};
 
-use std::{
-    collections::hash_map::DefaultHasher,
-    hash::{Hash, Hasher},
-    path::PathBuf,
-};
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
@@ -83,12 +79,11 @@ impl Graph<NodeKind> for GraphData {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FunctionDef {
-    pub name: String,
     pub graph: GraphData,
 }
 
 impl FunctionDef {
-    pub fn new(name: impl Into<String>) -> Self {
+    pub fn new() -> Self {
         // Two nodes: Source (id=0) and Sink (id=1), not pre-connected.
         // Positions are set by the UI when opening the subgraph for editing.
         let graph = GraphData {
@@ -103,23 +98,12 @@ impl FunctionDef {
             ],
             wires: vec![],
         };
-        FunctionDef {
-            name: name.into(),
-            graph,
-        }
+        FunctionDef { graph }
     }
 
-    /// Display name: the given name, or a short structural hash when name is empty.
-    pub fn display_name(&self) -> String {
-        if self.name.is_empty() {
-            format!("#{:08x}", self.graph_hash() as u32)
-        } else {
-            self.name.clone()
-        }
-    }
-
-    fn graph_hash(&self) -> u64 {
-        let mut hasher = DefaultHasher::new();
+    /// Stable SHA3-512 content hash of the graph structure (hex string).
+    pub fn graph_hash(&self) -> String {
+        use sha3::{Digest, Sha3_512};
         let mut entries: Vec<String> = self
             .graph
             .nodes()
@@ -133,8 +117,9 @@ impl FunctionDef {
             })
             .collect();
         entries.sort_unstable();
-        entries.hash(&mut hasher);
-        hasher.finish()
+        let combined = entries.join("\n");
+        let hash = Sha3_512::digest(combined.as_bytes());
+        format!("{hash:x}")
     }
 
     /// Derive the FunctionCall port types from the subgraph's Source and Sink nodes.

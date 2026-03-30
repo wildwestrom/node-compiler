@@ -124,7 +124,6 @@ pub enum NodeKind {
 
     FunctionCall {
         def_index: usize,
-        name: String,
         in_types: Vec<WireType>,
         out_types: Vec<WireType>,
     },
@@ -153,7 +152,7 @@ impl NodeKind {
             NodeKind::Slice => "SLICE".into(),
             NodeKind::Pack => "PACK".into(),
             NodeKind::Unpack => "UNPACK".into(),
-            NodeKind::FunctionCall { name, .. } => name.clone(),
+            NodeKind::FunctionCall { .. } => "FUNCTION".into(),
         }
     }
 

@@ -29,6 +29,10 @@ pub struct App {
     error: Option<String>,
     /// Serialized bytes of the graph at the last save/load — used for dirty detection.
     last_saved_state: Vec<u8>,
+    /// Names sidecar data.
+    names: persistence::NamesData,
+    /// Serialized bytes of names at the last save/load — used for dirty detection.
+    last_saved_names: Vec<u8>,
     /// Pending action that triggered the "unsaved changes" dialog.
     pending_action: Option<PendingAction>,
 }
@@ -46,6 +50,13 @@ fn serialize_state(state: &persistence::SavedState) -> Vec<u8> {
     return postcard::to_allocvec(state).unwrap_or_default();
     #[cfg(feature = "human-readable")]
     return ron::to_string(state).unwrap_or_default().into_bytes();
+}
+
+fn serialize_names(names: &persistence::NamesData) -> Vec<u8> {
+    #[cfg(not(feature = "human-readable"))]
+    return postcard::to_allocvec(names).unwrap_or_default();
+    #[cfg(feature = "human-readable")]
+    return ron::to_string(names).unwrap_or_default().into_bytes();
 }
 
 impl App {
@@ -76,6 +87,8 @@ impl App {
             functions: functions.clone(),
         };
         let last_saved_state = serialize_state(&default_state);
+        let default_names = persistence::NamesData::default();
+        let last_saved_names = serialize_names(&default_names);
 
         let mut app = Self {
             snarl,
@@ -93,6 +106,8 @@ impl App {
             working_dir: std::env::current_dir().unwrap_or_default(),
             error: None,
             last_saved_state,
+            names: default_names,
+            last_saved_names,
             pending_action: None,
         };
 
@@ -108,6 +123,9 @@ impl App {
                             app.last_saved_state = serialize_state(&state);
                             app.snarl = snarl_from_graph(&state.root_graph);
                             app.functions = state.functions;
+                            let names = persistence::load_names(&persistence::sidecar_path(&path));
+                            app.last_saved_names = serialize_names(&names);
+                            app.names = names;
                             app.current_path = Some(path);
                         }
                         Err(e) => {
@@ -131,6 +149,7 @@ impl App {
             functions: self.functions.clone(),
         };
         serialize_state(&current) != self.last_saved_state
+            || serialize_names(&self.names) != self.last_saved_names
     }
 
     fn do_save(&mut self, path: &std::path::Path) -> anyhow::Result<()> {
@@ -140,6 +159,9 @@ impl App {
         };
         persistence::save_state(&state, path)?;
         self.last_saved_state = serialize_state(&state);
+        let names_path = persistence::sidecar_path(path);
+        persistence::save_names(&self.names, &names_path)?;
+        self.last_saved_names = serialize_names(&self.names);
         Ok(())
     }
 
@@ -149,11 +171,13 @@ impl App {
         self.functions = Vec::new();
         self.editing = None;
         self.current_path = None;
+        self.names = persistence::NamesData::default();
         let blank = persistence::SavedState {
             root_graph: graph_from_snarl(&self.snarl),
             functions: self.functions.clone(),
         };
         self.last_saved_state = serialize_state(&blank);
+        self.last_saved_names = serialize_names(&self.names);
     }
 
     /// Save to the current path, or open a Save As dialog if none is set.
@@ -196,6 +220,10 @@ impl App {
                             self.snarl = snarl_from_graph(&state.root_graph);
                             self.functions = state.functions;
                             self.editing = None;
+                            let names =
+                                persistence::load_names(&persistence::sidecar_path(&path));
+                            self.last_saved_names = serialize_names(&names);
+                            self.names = names;
                             self.current_path = Some(path);
                         }
                         Err(e) => self.error = Some(format!("Failed to open: {e}")),
@@ -274,7 +302,15 @@ impl eframe::App for App {
             .iter()
             .map(|f| {
                 let (in_types, out_types) = f.call_types();
-                (f.display_name(), in_types, out_types)
+                let hash = f.graph_hash();
+                let name = self
+                    .names
+                    .functions
+                    .get(&hash)
+                    .filter(|n| !n.is_empty())
+                    .cloned()
+                    .unwrap_or_else(|| format!("#{}", &hash[..8]));
+                (name, in_types, out_types)
             })
             .collect();
 
@@ -325,7 +361,9 @@ impl eframe::App for App {
                         close_editing = true;
                     }
                     ui.label("›");
-                    ui.text_edit_singleline(&mut self.functions[idx].name);
+                    let hash = self.functions[idx].graph_hash();
+                    let name = self.names.functions.entry(hash).or_default();
+                    ui.text_edit_singleline(name);
                 });
             });
         }
@@ -368,6 +406,7 @@ impl eframe::App for App {
                                         functions: self.functions.clone(),
                                     };
                                     self.last_saved_state = serialize_state(&current);
+                                    self.last_saved_names = serialize_names(&self.names);
                                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                                 }
                                 PendingAction::New => self.do_new(),
@@ -384,7 +423,7 @@ impl eframe::App for App {
         egui::SidePanel::left("function_sidebar").show(ctx, |ui| {
             ui.heading("Functions");
             if ui.button("+ New").clicked() {
-                self.functions.push(FunctionDef::new("Unnamed"));
+                self.functions.push(FunctionDef::new());
                 let i = self.functions.len() - 1;
                 let editing_snarl = snarl_from_graph(&self.functions[i].graph);
                 self.editing = Some((i, editing_snarl));
@@ -398,7 +437,15 @@ impl eframe::App for App {
 
             for i in 0..n {
                 ui.horizontal(|ui| {
-                    ui.label(&self.functions[i].name);
+                    let hash = self.functions[i].graph_hash();
+                    let display = self
+                        .names
+                        .functions
+                        .get(&hash)
+                        .filter(|n| !n.is_empty())
+                        .map(String::as_str)
+                        .unwrap_or("Unnamed");
+                    ui.label(display);
                     if ui.small_button("Edit").clicked() {
                         to_edit = Some(i);
                     }
@@ -424,7 +471,6 @@ impl eframe::App for App {
                 let (in_types, out_types) = self.functions[i].call_types();
                 let node = NodeKind::FunctionCall {
                     def_index: i,
-                    name: self.functions[i].name.clone(),
                     in_types,
                     out_types,
                 };
