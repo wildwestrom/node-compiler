@@ -3,7 +3,12 @@ name = "node_compiler"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["human-readable"]
+human-readable = ["dep:ron"]
+
 [dependencies]
+ron = { version = "0.8", optional = true }
 eframe = { version = "0.33", features = ["persistence"] }
 egui = "0.33"
 egui-snarl = { version = "0.9.0", features = ["serde"] }

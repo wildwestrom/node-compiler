@@ -48,6 +48,7 @@
             rusty-man
           ];
           LD_LIBRARY_PATH = libPath;
+          RUST_LOG = "node_compiler=trace,warn";
         };
       }
     );
