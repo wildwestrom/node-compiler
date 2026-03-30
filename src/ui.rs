@@ -29,8 +29,14 @@ pub struct App {
     error: Option<String>,
     /// Serialized bytes of the graph at the last save/load — used for dirty detection.
     last_saved_state: Vec<u8>,
-    /// Set when a close request arrives while there are unsaved changes.
-    pending_close: bool,
+    /// Pending action that triggered the "unsaved changes" dialog.
+    pending_action: Option<PendingAction>,
+}
+
+#[derive(Clone, Copy)]
+enum PendingAction {
+    Close,
+    New,
 }
 
 const STORAGE_KEY_LAST_PATH: &str = "last_path";
@@ -80,7 +86,7 @@ impl App {
             working_dir: std::env::current_dir().unwrap_or_default(),
             error: None,
             last_saved_state,
-            pending_close: false,
+            pending_action: None,
         };
 
         // Reopen the last-used file if it still exists.
@@ -131,6 +137,19 @@ impl App {
         Ok(())
     }
 
+    /// Reset to a blank graph.
+    fn do_new(&mut self) {
+        self.snarl = Snarl::new();
+        self.functions = Vec::new();
+        self.editing = None;
+        self.current_path = None;
+        let blank = persistence::SavedState {
+            root_graph: graph_from_snarl(&self.snarl),
+            functions: self.functions.clone(),
+        };
+        self.last_saved_state = postcard::to_allocvec(&blank).unwrap_or_default();
+    }
+
     /// Save to the current path, or open a Save As dialog if none is set.
     fn handle_save(&mut self) -> anyhow::Result<()> {
         if let Some(path) = self.current_path.clone() {
@@ -146,6 +165,65 @@ impl App {
         } else {
             Ok(())
         }
+    }
+
+    fn file_submenu(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+        ui.menu_button("File", |ui| {
+        	  if ui.button("New").clicked() {
+        	  	ui.close();
+        	  	if self.is_dirty() {
+	        	  	self.pending_action = Some(PendingAction::New);
+        	  	} else {
+        	  		self.do_new();
+        	  	}
+        	  }
+            if ui.button("Open…").clicked() {
+                ui.close();
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("Node graph", &["ncg"])
+                    .set_directory(&self.working_dir)
+                    .pick_file()
+                {
+                    match persistence::load_state(&path) {
+                        Ok(state) => {
+                            self.last_saved_state =
+                                postcard::to_allocvec(&state).unwrap_or_default();
+                            self.snarl = snarl_from_graph(&state.root_graph);
+                            self.functions = state.functions;
+                            self.editing = None;
+                            self.current_path = Some(path);
+                        }
+                        Err(e) => self.error = Some(format!("Failed to open: {e}")),
+                    }
+                }
+            }
+            if ui
+                .add_enabled(self.current_path.is_some(), egui::Button::new("Save"))
+                .clicked()
+            {
+                ui.close();
+                if let Err(e) = self.handle_save() {
+                    self.error = Some(format!("Failed to save: {e}"));
+                }
+            }
+            if ui.button("Save As…").clicked() {
+                ui.close();
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("Node graph", &["ncg"])
+                    .set_file_name("Untitled.ncg")
+                    .save_file()
+                {
+                    match self.do_save(&path) {
+                        Ok(()) => self.current_path = Some(path),
+                        Err(e) => self.error = Some(format!("Failed to save: {e}")),
+                    }
+                }
+            }
+            ui.separator();
+            if ui.button("Quit").clicked() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+        });
     }
 }
 
@@ -182,7 +260,7 @@ impl eframe::App for App {
         // Intercept close requests: if there are unsaved changes, show save/discard dialog.
         if ctx.input(|i| i.viewport().close_requested()) && self.is_dirty() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            self.pending_close = true;
+            self.pending_action = Some(PendingAction::Close);
         }
 
         // Snapshot function signatures to pass to the viewer without borrow conflicts.
@@ -197,54 +275,8 @@ impl eframe::App for App {
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
-                ui.menu_button("File", |ui| {
-                    if ui.button("Open…").clicked() {
-                        ui.close();
-                        if let Some(path) = rfd::FileDialog::new()
-                            .add_filter("Node graph", &["ncg"])
-                            .set_directory(&self.working_dir)
-                            .pick_file()
-                        {
-                            match persistence::load_state(&path) {
-                                Ok(state) => {
-                                    self.last_saved_state =
-                                        postcard::to_allocvec(&state).unwrap_or_default();
-                                    self.snarl = snarl_from_graph(&state.root_graph);
-                                    self.functions = state.functions;
-                                    self.editing = None;
-                                    self.current_path = Some(path);
-                                }
-                                Err(e) => self.error = Some(format!("Failed to open: {e}")),
-                            }
-                        }
-                    }
-                    if ui
-                        .add_enabled(self.current_path.is_some(), egui::Button::new("Save"))
-                        .clicked()
-                    {
-                        ui.close();
-                        if let Err(e) = self.handle_save() {
-                            self.error = Some(format!("Failed to save: {e}"));
-                        }
-                    }
-                    if ui.button("Save As…").clicked() {
-                        ui.close();
-                        if let Some(path) = rfd::FileDialog::new()
-                            .add_filter("Node graph", &["ncg"])
-                            .set_file_name("Untitled.ncg")
-                            .save_file()
-                        {
-                            match self.do_save(&path) {
-                                Ok(()) => self.current_path = Some(path),
-                                Err(e) => self.error = Some(format!("Failed to save: {e}")),
-                            }
-                        }
-                    }
-                    ui.separator();
-                    if ui.button("Quit").clicked() {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
-                });
+                self.file_submenu(ctx, ui);
+
                 if ui.button("Arrange").clicked() {
                     match &mut self.editing {
                         None => auto_arrange(&mut self.snarl),
@@ -297,8 +329,8 @@ impl eframe::App for App {
             self.functions[fi].graph = graph_from_snarl(&editing_snarl);
         }
 
-        // Save/discard dialog shown when the user closes with unsaved changes.
-        if self.pending_close {
+        // Save/discard dialog shown when the user has unsaved changes before Close or New.
+        if let Some(action) = self.pending_action {
             egui::Window::new("Unsaved changes")
                 .collapsible(false)
                 .resizable(false)
@@ -310,24 +342,35 @@ impl eframe::App for App {
                         if ui.button("Save").clicked() {
                             match self.handle_save() {
                                 Ok(()) => {
-                                    self.pending_close = false;
-                                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                                    self.pending_action = None;
+                                    match action {
+                                        PendingAction::Close => {
+                                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                                        }
+                                        PendingAction::New => self.do_new(),
+                                    }
                                 }
                                 Err(e) => self.error = Some(format!("Failed to save: {e}")),
                             }
                         }
                         if ui.button("Discard").clicked() {
-                            self.pending_close = false;
-                            let current = persistence::SavedState {
-                                root_graph: graph_from_snarl(&self.snarl),
-                                functions: self.functions.clone(),
-                            };
-                            self.last_saved_state =
-                                postcard::to_allocvec(&current).unwrap_or_default();
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                            self.pending_action = None;
+                            match action {
+                                PendingAction::Close => {
+                                    // Mark clean so the close-intercept doesn't re-trigger.
+                                    let current = persistence::SavedState {
+                                        root_graph: graph_from_snarl(&self.snarl),
+                                        functions: self.functions.clone(),
+                                    };
+                                    self.last_saved_state =
+                                        postcard::to_allocvec(&current).unwrap_or_default();
+                                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                                }
+                                PendingAction::New => self.do_new(),
+                            }
                         }
                         if ui.button("Cancel").clicked() {
-                            self.pending_close = false;
+                            self.pending_action = None;
                         }
                     });
                 });
@@ -423,8 +466,7 @@ impl eframe::App for App {
                 }
 
                 // Editing snarl (if open).
-                let editing_is_deleted =
-                    matches!(&self.editing, Some((idx, _)) if *idx == i);
+                let editing_is_deleted = matches!(&self.editing, Some((idx, _)) if *idx == i);
                 if editing_is_deleted {
                     self.editing = None;
                 } else if let Some((idx, editing_snarl)) = &mut self.editing {
@@ -454,9 +496,7 @@ impl eframe::App for App {
                         })
                         .collect();
                     for id in to_fix {
-                        if let NodeKind::FunctionCall { def_index, .. } =
-                            &mut editing_snarl[id]
-                        {
+                        if let NodeKind::FunctionCall { def_index, .. } = &mut editing_snarl[id] {
                             *def_index -= 1;
                         }
                     }
@@ -487,8 +527,7 @@ impl eframe::App for App {
                         !matches!(n, NodeKind::FunctionCall { def_index, .. } if *def_index == i)
                     });
                     graph.wires.retain(|(out, inp)| {
-                        !deleted_ids.contains(&out.node.0)
-                            && !deleted_ids.contains(&inp.node.0)
+                        !deleted_ids.contains(&out.node.0) && !deleted_ids.contains(&inp.node.0)
                     });
                     for (_, n) in &mut graph.nodes {
                         if let NodeKind::FunctionCall { def_index, .. } = n {
