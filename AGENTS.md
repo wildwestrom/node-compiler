@@ -35,3 +35,7 @@ This project uses jujutsu so for any git commands, use whatever the `jj` equival
 
 - `Value` — runtime value enum (Bytes, Int, Float, Bool, Text, List, Map, Null)
 - `NodeKind` — node type enum covering primitives (Literal, FileSink, FileSource), byte manipulation (Concat, Slice, EncodeU32, DecodeU32), control flow (Map, Fold, Branch), introspection (GraphToList, ListToGraph), and composition (Subgraph)
+
+### Ignore
+
+- `codebook.toml`: This is just for a spellchecker.
