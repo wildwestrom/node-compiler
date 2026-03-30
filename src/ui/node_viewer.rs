@@ -40,7 +40,9 @@ impl SnarlViewer<NodeKind> for NodeGraphViewer<'_> {
 
     fn title(&mut self, node: &NodeKind) -> String {
         match node {
-            NodeKind::FunctionCall { def_index, name, .. } => self
+            NodeKind::FunctionCall {
+                def_index, name, ..
+            } => self
                 .fn_sigs
                 .get(*def_index)
                 .map(|(n, _, _)| n.clone())
@@ -197,12 +199,7 @@ impl SnarlViewer<NodeKind> for NodeGraphViewer<'_> {
         true
     }
 
-    fn show_graph_menu(
-        &mut self,
-        pos: egui::Pos2,
-        ui: &mut egui::Ui,
-        snarl: &mut Snarl<NodeKind>,
-    ) {
+    fn show_graph_menu(&mut self, pos: egui::Pos2, ui: &mut egui::Ui, snarl: &mut Snarl<NodeKind>) {
         ui.label("Add node:");
         ui.separator();
 
@@ -214,22 +211,61 @@ impl SnarlViewer<NodeKind> for NodeGraphViewer<'_> {
         ui.separator();
 
         ui.menu_button("Bitwise", |ui| {
-            if ui.button("AND").clicked() { snarl.insert_node(pos, NodeKind::And); ui.close(); }
-            if ui.button("OR").clicked()  { snarl.insert_node(pos, NodeKind::Or);  ui.close(); }
-            if ui.button("XOR").clicked() { snarl.insert_node(pos, NodeKind::Xor); ui.close(); }
-            if ui.button("NOT").clicked() { snarl.insert_node(pos, NodeKind::Not); ui.close(); }
-            if ui.button("NAND").clicked(){ snarl.insert_node(pos, NodeKind::Nand);ui.close(); }
-            if ui.button("NOR").clicked() { snarl.insert_node(pos, NodeKind::Nor); ui.close(); }
-            if ui.button("SHL").clicked() { snarl.insert_node(pos, NodeKind::Shl); ui.close(); }
-            if ui.button("SHR").clicked() { snarl.insert_node(pos, NodeKind::Shr); ui.close(); }
+            if ui.button("AND").clicked() {
+                snarl.insert_node(pos, NodeKind::And);
+                ui.close();
+            }
+            if ui.button("OR").clicked() {
+                snarl.insert_node(pos, NodeKind::Or);
+                ui.close();
+            }
+            if ui.button("XOR").clicked() {
+                snarl.insert_node(pos, NodeKind::Xor);
+                ui.close();
+            }
+            if ui.button("NOT").clicked() {
+                snarl.insert_node(pos, NodeKind::Not);
+                ui.close();
+            }
+            if ui.button("NAND").clicked() {
+                snarl.insert_node(pos, NodeKind::Nand);
+                ui.close();
+            }
+            if ui.button("NOR").clicked() {
+                snarl.insert_node(pos, NodeKind::Nor);
+                ui.close();
+            }
+            if ui.button("SHL").clicked() {
+                snarl.insert_node(pos, NodeKind::Shl);
+                ui.close();
+            }
+            if ui.button("SHR").clicked() {
+                snarl.insert_node(pos, NodeKind::Shr);
+                ui.close();
+            }
         });
 
         ui.menu_button("Arithmetic", |ui| {
-            if ui.button("ADD").clicked() { snarl.insert_node(pos, NodeKind::Add); ui.close(); }
-            if ui.button("SUB").clicked() { snarl.insert_node(pos, NodeKind::Sub); ui.close(); }
-            if ui.button("MUL").clicked() { snarl.insert_node(pos, NodeKind::Mul); ui.close(); }
-            if ui.button("DIV").clicked() { snarl.insert_node(pos, NodeKind::Div); ui.close(); }
-            if ui.button("MOD").clicked() { snarl.insert_node(pos, NodeKind::Mod); ui.close(); }
+            if ui.button("ADD").clicked() {
+                snarl.insert_node(pos, NodeKind::Add);
+                ui.close();
+            }
+            if ui.button("SUB").clicked() {
+                snarl.insert_node(pos, NodeKind::Sub);
+                ui.close();
+            }
+            if ui.button("MUL").clicked() {
+                snarl.insert_node(pos, NodeKind::Mul);
+                ui.close();
+            }
+            if ui.button("DIV").clicked() {
+                snarl.insert_node(pos, NodeKind::Div);
+                ui.close();
+            }
+            if ui.button("MOD").clicked() {
+                snarl.insert_node(pos, NodeKind::Mod);
+                ui.close();
+            }
         });
 
         ui.menu_button("Byte manipulation", |ui| {
@@ -241,9 +277,18 @@ impl SnarlViewer<NodeKind> for NodeGraphViewer<'_> {
                 snarl.insert_node(pos, NodeKind::Concat { count: 4 });
                 ui.close();
             }
-            if ui.button("SLICE").clicked()  { snarl.insert_node(pos, NodeKind::Slice);  ui.close(); }
-            if ui.button("PACK").clicked()   { snarl.insert_node(pos, NodeKind::Pack);   ui.close(); }
-            if ui.button("UNPACK").clicked() { snarl.insert_node(pos, NodeKind::Unpack); ui.close(); }
+            if ui.button("SLICE").clicked() {
+                snarl.insert_node(pos, NodeKind::Slice);
+                ui.close();
+            }
+            if ui.button("PACK").clicked() {
+                snarl.insert_node(pos, NodeKind::Pack);
+                ui.close();
+            }
+            if ui.button("UNPACK").clicked() {
+                snarl.insert_node(pos, NodeKind::Unpack);
+                ui.close();
+            }
         });
 
         if !self.fn_sigs.is_empty() {
@@ -275,11 +320,7 @@ impl SnarlViewer<NodeKind> for NodeGraphViewer<'_> {
         }
     }
 
-    fn has_dropped_wire_menu(
-        &mut self,
-        _src_pins: AnyPins,
-        _snarl: &mut Snarl<NodeKind>,
-    ) -> bool {
+    fn has_dropped_wire_menu(&mut self, _src_pins: AnyPins, _snarl: &mut Snarl<NodeKind>) -> bool {
         true
     }
 

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use crate::graph::{FunctionDef, Graph, InPinId, NodeId, OutPinId};
 use crate::graph::types::{NodeKind, NodeValue};
+use crate::graph::{FunctionDef, Graph, InPinId, NodeId, OutPinId};
 
 pub type EvalCache = HashMap<OutPinId, Option<NodeValue>>;
 
@@ -10,7 +10,15 @@ pub fn eval_graph<G: Graph<NodeKind>>(graph: &G, functions: &[FunctionDef]) -> E
     let mut cache = EvalCache::new();
     for (node_id, node) in graph.nodes() {
         for out in 0..node.output_count() {
-            eval_output(OutPinId { node: node_id, output: out }, graph, &mut cache, functions);
+            eval_output(
+                OutPinId {
+                    node: node_id,
+                    output: out,
+                },
+                graph,
+                &mut cache,
+                functions,
+            );
         }
     }
     cache
@@ -149,22 +157,38 @@ fn compute<G: Graph<NodeKind>>(
         NodeKind::Div => match get_in(n, 0, graph, cache, functions)? {
             NodeValue::Byte(a) => {
                 let b = inp_byte!(1);
-                if b == 0 { None } else { Some(NodeValue::Byte(a / b)) }
+                if b == 0 {
+                    None
+                } else {
+                    Some(NodeValue::Byte(a / b))
+                }
             }
             NodeValue::Word(a) => {
                 let b = inp_word!(1);
-                if b == 0 { None } else { Some(NodeValue::Word(a / b)) }
+                if b == 0 {
+                    None
+                } else {
+                    Some(NodeValue::Word(a / b))
+                }
             }
             _ => None,
         },
         NodeKind::Mod => match get_in(n, 0, graph, cache, functions)? {
             NodeValue::Byte(a) => {
                 let b = inp_byte!(1);
-                if b == 0 { None } else { Some(NodeValue::Byte(a % b)) }
+                if b == 0 {
+                    None
+                } else {
+                    Some(NodeValue::Byte(a % b))
+                }
             }
             NodeValue::Word(a) => {
                 let b = inp_word!(1);
-                if b == 0 { None } else { Some(NodeValue::Word(a % b)) }
+                if b == 0 {
+                    None
+                } else {
+                    Some(NodeValue::Word(a % b))
+                }
             }
             _ => None,
         },
@@ -181,7 +205,9 @@ fn compute<G: Graph<NodeKind>>(
         NodeKind::Slice => {
             let word = inp_word!(0);
             let offset = inp_byte!(1);
-            Some(NodeValue::Byte(((word >> (offset as u32 * 8)) & 0xFF) as u8))
+            Some(NodeValue::Byte(
+                ((word >> (offset as u32 * 8)) & 0xFF) as u8,
+            ))
         }
         NodeKind::Pack => {
             let mut byte = 0u8;
@@ -206,7 +232,13 @@ fn compute<G: Graph<NodeKind>>(
                 if matches!(node, NodeKind::Source { .. }) {
                     for out_port in 0..node.output_count() {
                         let val = get_in(n, arg_idx, graph, cache, functions);
-                        sub_cache.insert(OutPinId { node: src_id, output: out_port }, val);
+                        sub_cache.insert(
+                            OutPinId {
+                                node: src_id,
+                                output: out_port,
+                            },
+                            val,
+                        );
                         arg_idx += 1;
                     }
                 }
@@ -214,12 +246,15 @@ fn compute<G: Graph<NodeKind>>(
 
             // Evaluate the Sink's o-th input in the subgraph.
             for (sink_id, node) in sub.nodes() {
-                if matches!(node, NodeKind::Sink) {
-                    if let Some(src) =
-                        sub.sources_of(InPinId { node: sink_id, input: o }).next()
-                    {
-                        return eval_output(src, sub, &mut sub_cache, functions);
-                    }
+                if matches!(node, NodeKind::Sink)
+                    && let Some(src) = sub
+                        .sources_of(InPinId {
+                            node: sink_id,
+                            input: o,
+                        })
+                        .next()
+                {
+                    return eval_output(src, sub, &mut sub_cache, functions);
                 }
             }
             None

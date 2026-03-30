@@ -1,8 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 
-use egui_snarl::{
-    InPinId as SnarlIn, NodeId as SnarlNodeId, OutPinId as SnarlOut, Snarl,
-};
+use egui_snarl::{InPinId as SnarlIn, NodeId as SnarlNodeId, OutPinId as SnarlOut, Snarl};
 
 use crate::graph::{Graph, GraphData, InPinId, NodeId, NodeKind, OutPinId};
 
@@ -22,32 +20,47 @@ impl From<NodeId> for SnarlNodeId {
 
 impl From<SnarlOut> for OutPinId {
     fn from(id: SnarlOut) -> Self {
-        OutPinId { node: NodeId(id.node.0), output: id.output }
+        OutPinId {
+            node: NodeId(id.node.0),
+            output: id.output,
+        }
     }
 }
 
 impl From<OutPinId> for SnarlOut {
     fn from(id: OutPinId) -> Self {
-        SnarlOut { node: SnarlNodeId(id.node.0), output: id.output }
+        SnarlOut {
+            node: SnarlNodeId(id.node.0),
+            output: id.output,
+        }
     }
 }
 
 impl From<SnarlIn> for InPinId {
     fn from(id: SnarlIn) -> Self {
-        InPinId { node: NodeId(id.node.0), input: id.input }
+        InPinId {
+            node: NodeId(id.node.0),
+            input: id.input,
+        }
     }
 }
 
 impl From<InPinId> for SnarlIn {
     fn from(id: InPinId) -> Self {
-        SnarlIn { node: SnarlNodeId(id.node.0), input: id.input }
+        SnarlIn {
+            node: SnarlNodeId(id.node.0),
+            input: id.input,
+        }
     }
 }
 
 // ─── Graph impl for Snarl ────────────────────────────────────────────────────
 
 impl Graph<NodeKind> for Snarl<NodeKind> {
-    fn nodes<'a>(&'a self) -> impl Iterator<Item = (NodeId, &'a NodeKind)> where NodeKind: 'a {
+    fn nodes<'a>(&'a self) -> impl Iterator<Item = (NodeId, &'a NodeKind)>
+    where
+        NodeKind: 'a,
+    {
         self.node_ids().map(|(id, node)| (NodeId(id.0), node))
     }
 
@@ -56,7 +69,10 @@ impl Graph<NodeKind> for Snarl<NodeKind> {
     }
 
     fn sources_of(&self, pin: InPinId) -> impl Iterator<Item = OutPinId> {
-        self.in_pin(SnarlIn::from(pin)).remotes.into_iter().map(OutPinId::from)
+        self.in_pin(SnarlIn::from(pin))
+            .remotes
+            .into_iter()
+            .map(OutPinId::from)
     }
 }
 
@@ -114,13 +130,15 @@ fn layout_positions(g: &GraphData) -> HashMap<usize, [f32; 2]> {
     let mut col_rows: HashMap<usize, usize> = HashMap::new();
     let mut positions: HashMap<usize, [f32; 2]> = HashMap::new();
 
-    let mut by_col: Vec<(usize, usize)> =
-        col.iter().map(|(&id, &c)| (id, c)).collect();
+    let mut by_col: Vec<(usize, usize)> = col.iter().map(|(&id, &c)| (id, c)).collect();
     by_col.sort_by_key(|&(id, c)| (c, id)); // deterministic within each column
 
     for (node_id, node_col) in by_col {
         let row = col_rows.entry(node_col).or_insert(0);
-        positions.insert(node_id, [node_col as f32 * COL_SPACING, *row as f32 * ROW_SPACING]);
+        positions.insert(
+            node_id,
+            [node_col as f32 * COL_SPACING, *row as f32 * ROW_SPACING],
+        );
         *row += 1;
     }
 
@@ -147,8 +165,14 @@ pub fn snarl_from_graph(g: &GraphData) -> Snarl<NodeKind> {
             (id_map.get(&out.node.0), id_map.get(&inp.node.0))
         {
             snarl.connect(
-                SnarlOut { node: new_out_node, output: out.output },
-                SnarlIn { node: new_inp_node, input: inp.input },
+                SnarlOut {
+                    node: new_out_node,
+                    output: out.output,
+                },
+                SnarlIn {
+                    node: new_inp_node,
+                    input: inp.input,
+                },
             );
         }
     }
@@ -161,10 +185,10 @@ pub fn auto_arrange(snarl: &mut Snarl<NodeKind>) {
     let g = graph_from_snarl(snarl);
     let positions = layout_positions(&g);
     for (old_id, _) in &g.nodes {
-        if let Some(pos) = positions.get(old_id) {
-            if let Some(info) = snarl.get_node_info_mut(SnarlNodeId(*old_id)) {
-                info.pos = egui::pos2(pos[0], pos[1]);
-            }
+        if let Some(pos) = positions.get(old_id)
+            && let Some(info) = snarl.get_node_info_mut(SnarlNodeId(*old_id))
+        {
+            info.pos = egui::pos2(pos[0], pos[1]);
         }
     }
 }
@@ -172,6 +196,9 @@ pub fn auto_arrange(snarl: &mut Snarl<NodeKind>) {
 /// Convert `Snarl` → `GraphData`, preserving topology but discarding positions.
 pub fn graph_from_snarl(snarl: &Snarl<NodeKind>) -> GraphData {
     let nodes = snarl.node_ids().map(|(id, n)| (id.0, n.clone())).collect();
-    let wires = snarl.wires().map(|(out, inp)| (OutPinId::from(out), InPinId::from(inp))).collect();
+    let wires = snarl
+        .wires()
+        .map(|(out, inp)| (OutPinId::from(out), InPinId::from(inp)))
+        .collect();
     GraphData { nodes, wires }
 }

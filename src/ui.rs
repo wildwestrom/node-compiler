@@ -41,12 +41,20 @@ impl App {
 
         let lit = snarl.insert_node(
             egui::pos2(-200.0, 0.0),
-            NodeKind::Source { filename: "".into() },
+            NodeKind::Source {
+                filename: "".into(),
+            },
         );
         let sink = snarl.insert_node(egui::pos2(100.0, 0.0), NodeKind::Sink);
         snarl.connect(
-            OutPinId { node: lit, output: 0 },
-            InPinId { node: sink, input: 0 },
+            OutPinId {
+                node: lit,
+                output: 0,
+            },
+            InPinId {
+                node: sink,
+                input: 0,
+            },
         );
 
         let functions: Vec<FunctionDef> = Vec::new();
@@ -165,10 +173,10 @@ impl eframe::App for App {
         }
 
         // Ctrl-S: save (or Save As if no path set).
-        if ctx.input(|i| i.key_pressed(egui::Key::S) && i.modifiers.command) {
-            if let Err(e) = self.handle_save() {
-                self.error = Some(format!("Failed to save: {e}"));
-            }
+        if ctx.input(|i| i.key_pressed(egui::Key::S) && i.modifiers.command)
+            && let Err(e) = self.handle_save()
+        {
+            self.error = Some(format!("Failed to save: {e}"));
         }
 
         // Intercept close requests: if there are unsaved changes, show save/discard dialog.
@@ -285,10 +293,8 @@ impl eframe::App for App {
             });
         }
 
-        if close_editing {
-            if let Some((fi, editing_snarl)) = self.editing.take() {
-                self.functions[fi].graph = graph_from_snarl(&editing_snarl);
-            }
+        if close_editing && let Some((fi, editing_snarl)) = self.editing.take() {
+            self.functions[fi].graph = graph_from_snarl(&editing_snarl);
         }
 
         // Save/discard dialog shown when the user closes with unsaved changes.
@@ -386,39 +392,37 @@ impl eframe::App for App {
             }
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            match &mut self.editing {
-                None => {
-                    let cache = eval_graph(&self.snarl, &self.functions);
-                    SnarlWidget::new()
-                        .id(Id::new("root_snarl"))
-                        .style(self.style)
-                        .show(
-                            &mut self.snarl,
-                            &mut node_viewer::NodeGraphViewer {
-                                cache: &cache,
-                                fn_sigs: &fn_sigs,
-                                in_subgraph: false,
-                            },
-                            ui,
-                        );
-                }
-                Some((idx, editing_snarl)) => {
-                    let idx = *idx;
-                    let cache = eval_graph(&*editing_snarl, &self.functions);
-                    SnarlWidget::new()
-                        .id(Id::new(("fn_snarl", idx)))
-                        .style(self.style)
-                        .show(
-                            editing_snarl,
-                            &mut node_viewer::NodeGraphViewer {
-                                cache: &cache,
-                                fn_sigs: &fn_sigs,
-                                in_subgraph: true,
-                            },
-                            ui,
-                        );
-                }
+        egui::CentralPanel::default().show(ctx, |ui| match &mut self.editing {
+            None => {
+                let cache = eval_graph(&self.snarl, &self.functions);
+                SnarlWidget::new()
+                    .id(Id::new("root_snarl"))
+                    .style(self.style)
+                    .show(
+                        &mut self.snarl,
+                        &mut node_viewer::NodeGraphViewer {
+                            cache: &cache,
+                            fn_sigs: &fn_sigs,
+                            in_subgraph: false,
+                        },
+                        ui,
+                    );
+            }
+            Some((idx, editing_snarl)) => {
+                let idx = *idx;
+                let cache = eval_graph(&*editing_snarl, &self.functions);
+                SnarlWidget::new()
+                    .id(Id::new(("fn_snarl", idx)))
+                    .style(self.style)
+                    .show(
+                        editing_snarl,
+                        &mut node_viewer::NodeGraphViewer {
+                            cache: &cache,
+                            fn_sigs: &fn_sigs,
+                            in_subgraph: true,
+                        },
+                        ui,
+                    );
             }
         });
     }

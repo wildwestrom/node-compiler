@@ -42,25 +42,42 @@ impl NodeValue {
     }
 
     pub(crate) fn as_bit(&self) -> Option<bool> {
-        if let NodeValue::Bit(v) = self { Some(*v) } else { None }
+        if let NodeValue::Bit(v) = self {
+            Some(*v)
+        } else {
+            None
+        }
     }
 
     pub(crate) fn as_byte(&self) -> Option<u8> {
-        if let NodeValue::Byte(v) = self { Some(*v) } else { None }
+        if let NodeValue::Byte(v) = self {
+            Some(*v)
+        } else {
+            None
+        }
     }
 
     pub(crate) fn as_word(&self) -> Option<u64> {
-        if let NodeValue::Word(v) = self { Some(*v) } else { None }
+        if let NodeValue::Word(v) = self {
+            Some(*v)
+        } else {
+            None
+        }
     }
 
     pub fn short_display(&self) -> String {
         match self {
-            NodeValue::Bit(v) => if *v { "1".into() } else { "0".into() },
+            NodeValue::Bit(v) => {
+                if *v {
+                    "1".into()
+                } else {
+                    "0".into()
+                }
+            }
             NodeValue::Byte(v) => format!("{:#04X}", v),
             NodeValue::Word(v) => format!("{:#018X}", v),
             NodeValue::Bytes(v) => {
-                let parts: Vec<String> =
-                    v.iter().take(8).map(|b| format!("{:02X}", b)).collect();
+                let parts: Vec<String> = v.iter().take(8).map(|b| format!("{:02X}", b)).collect();
                 let suffix = if v.len() > 8 {
                     format!(" …+{}", v.len() - 8)
                 } else {
@@ -76,7 +93,9 @@ impl NodeValue {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum NodeKind {
-    Source { filename: PathBuf },
+    Source {
+        filename: PathBuf,
+    },
     Sink,
 
     Constant(Vec<NodeValue>),
@@ -96,7 +115,9 @@ pub enum NodeKind {
     Div,
     Mod,
 
-    Concat { count: u8 },
+    Concat {
+        count: u8,
+    },
     Slice,
     Pack,
     Unpack,
@@ -189,7 +210,11 @@ impl NodeKind {
             | NodeKind::Div
             | NodeKind::Mod => WireType::Byte,
             NodeKind::Slice => {
-                if port == 0 { WireType::Word } else { WireType::Byte }
+                if port == 0 {
+                    WireType::Word
+                } else {
+                    WireType::Byte
+                }
             }
             NodeKind::Pack => WireType::Bit,
             NodeKind::Unpack => WireType::Byte,
@@ -227,15 +252,27 @@ impl NodeKind {
             | NodeKind::Mul
             | NodeKind::Div
             | NodeKind::Mod => {
-                if port == 0 { "a".into() } else { "b".into() }
+                if port == 0 {
+                    "a".into()
+                } else {
+                    "b".into()
+                }
             }
             NodeKind::Not => "a".into(),
             NodeKind::Shl | NodeKind::Shr => {
-                if port == 0 { "a".into() } else { "amount".into() }
+                if port == 0 {
+                    "a".into()
+                } else {
+                    "amount".into()
+                }
             }
             NodeKind::Concat { .. } => format!("in[{port}]"),
             NodeKind::Slice => {
-                if port == 0 { "in".into() } else { "offset".into() }
+                if port == 0 {
+                    "in".into()
+                } else {
+                    "offset".into()
+                }
             }
             NodeKind::Pack => format!("bit[{port}]"),
             NodeKind::Unpack => "in".into(),

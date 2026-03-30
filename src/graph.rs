@@ -1,8 +1,8 @@
-pub mod types;
 mod eval;
+pub mod types;
 
-pub use types::{NodeKind, NodeValue, WireType};
 pub use eval::{EvalCache, eval_graph};
+pub use types::{NodeKind, NodeValue, WireType};
 
 use std::{
     collections::hash_map::DefaultHasher,
@@ -36,7 +36,9 @@ pub struct InPinId {
 /// Implemented by both [`GraphData`] (pure data, no egui deps) and
 /// `Snarl<NodeKind>` (live UI state, in `ui::snarl_graph`).
 pub trait Graph<N> {
-    fn nodes<'a>(&'a self) -> impl Iterator<Item = (NodeId, &'a N)> where N: 'a;
+    fn nodes<'a>(&'a self) -> impl Iterator<Item = (NodeId, &'a N)>
+    where
+        N: 'a;
     fn node(&self, id: NodeId) -> &N;
     fn sources_of(&self, pin: InPinId) -> impl Iterator<Item = OutPinId> + '_;
 }
@@ -54,7 +56,10 @@ pub struct GraphData {
 }
 
 impl Graph<NodeKind> for GraphData {
-    fn nodes<'a>(&'a self) -> impl Iterator<Item = (NodeId, &'a NodeKind)> where NodeKind: 'a {
+    fn nodes<'a>(&'a self) -> impl Iterator<Item = (NodeId, &'a NodeKind)>
+    where
+        NodeKind: 'a,
+    {
         self.nodes.iter().map(|(id, n)| (NodeId(*id), n))
     }
 
@@ -98,7 +103,10 @@ impl FunctionDef {
             ],
             wires: vec![],
         };
-        FunctionDef { name: name.into(), graph }
+        FunctionDef {
+            name: name.into(),
+            graph,
+        }
     }
 
     /// Display name: the given name, or a short structural hash when name is empty.
